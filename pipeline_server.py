@@ -43,8 +43,9 @@ def _random_raw_frame() -> Dict:
     _seq["n"] += 1
 
     scenario = random.choices(
-        ["rest", "stress", "exercise", "hypoxia", "charging", "low_battery", "noisy"],
-        weights=[45, 15, 10, 8, 6, 6, 10],
+        ["rest", "stress", "exercise", "vigorous_exercise", "fever",
+         "mild_hypoxemia", "hypoxia", "charging", "low_battery", "noisy"],
+        weights=[38, 12, 8, 6, 6, 6, 6, 6, 6, 6],
     )[0]
 
     # --- Physiological defaults ---
@@ -54,11 +55,23 @@ def _random_raw_frame() -> Dict:
         hr, spo2, temp, acc = random.gauss(105, 5), random.gauss(97.5, 0.6), random.gauss(37.1, 0.15), random.gauss(1.0, 0.03)
     elif scenario == "exercise":
         hr, spo2, temp, acc = random.gauss(140, 6), random.gauss(97.0, 0.7), random.gauss(37.3, 0.2), random.gauss(1.15, 0.08)
+    elif scenario == "vigorous_exercise":
+        # 185–200 bpm — previously (wrongly) flagged as out-of-range.
+        # Now accepted thanks to the 200 bpm SQI upper bound.
+        hr, spo2, temp, acc = random.gauss(188, 5), random.gauss(96.5, 0.8), random.gauss(37.5, 0.2), random.gauss(1.2, 0.1)
+    elif scenario == "fever":
+        # Elevated skin temp → surfaces `elevated_skin_temp` clinical flag
+        # without affecting SQI or rejection.
+        hr, spo2, temp, acc = random.gauss(95, 5), random.gauss(97.8, 0.4), random.gauss(37.9, 0.2), random.gauss(1.0, 0.02)
+    elif scenario == "mild_hypoxemia":
+        # SpO2 91–93% → `spo2_clinical_concern` clinical flag.
+        hr, spo2, temp, acc = random.gauss(92, 4), random.gauss(92.0, 0.8), random.gauss(36.8, 0.15), random.gauss(1.0, 0.02)
     elif scenario == "hypoxia":
         hr, spo2, temp, acc = random.gauss(110, 5), random.gauss(86.0, 1.5), random.gauss(36.8, 0.15), random.gauss(1.0, 0.02)
     elif scenario == "charging":
-        # Charging → off-wrist, die_temp elevated, skin temp biased upward.
-        hr, spo2, temp, acc = random.gauss(72, 3), random.gauss(98.5, 0.4), random.gauss(37.5, 0.2), random.gauss(1.0, 0.01)
+        # Charging → off-wrist, die_temp elevated, skin temp biased upward
+        # (the thermal compensator will correct this downward).
+        hr, spo2, temp, acc = random.gauss(72, 3), random.gauss(98.5, 0.4), random.gauss(38.2, 0.3), random.gauss(1.0, 0.01)
     elif scenario == "low_battery":
         hr, spo2, temp, acc = random.gauss(72, 3), random.gauss(98.5, 0.4), random.gauss(36.6, 0.15), random.gauss(1.0, 0.02)
     else:  # noisy — bad HR, bad ADC, sometimes finger off
@@ -268,6 +281,15 @@ _HTML = r"""<!doctype html>
     font-size: 10px; margin: 3px 5px 3px 0;
     letter-spacing: .4px;
   }
+  .clinical {
+    display:inline-block;
+    background: transparent;
+    color: var(--accent-2);
+    border: 1px dashed rgba(201,191,168,.55);
+    padding: 3px 9px; border-radius: 2px;
+    font-size: 10px; margin: 3px 5px 3px 0;
+    letter-spacing: .4px;
+  }
   footer {
     padding: 14px 36px; color: var(--muted); font-size: 10px;
     border-top: 1px solid var(--border);
@@ -323,6 +345,7 @@ _HTML = r"""<!doctype html>
     <div id="sqi-breakdown" style="margin-top:10px; display:grid; grid-template-columns:repeat(6,1fr); gap:8px;"></div>
 
     <div id="reasons" style="margin-top:10px;"></div>
+    <div id="clinical" style="margin-top:4px;"></div>
 
     <div style="margin-top:14px;">
       <div class="k" style="margin-bottom:6px;">Full output JSON</div>
@@ -398,10 +421,16 @@ function render(data) {
     </div>
   `).join("");
 
-  // Reject reasons
+  // Reject reasons (quality failures)
   const reasons = sample.reject_reasons || [];
   $("reasons").innerHTML = reasons.length
     ? reasons.map(r => `<span class="reason">${r}</span>`).join("")
+    : "";
+
+  // Clinical flags (advisory — don't block acceptance)
+  const clinical = sample.clinical_flags || [];
+  $("clinical").innerHTML = clinical.length
+    ? clinical.map(r => `<span class="clinical">⚕ ${r}</span>`).join("")
     : "";
 
   // Full output JSON

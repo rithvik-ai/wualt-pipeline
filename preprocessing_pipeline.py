@@ -59,7 +59,8 @@ OUTPUT (ready for the rule engine)
             "overall": float,
         },
         "accepted":       bool,       # False => rule engine should skip / warm-up
-        "reject_reasons": list[str],  # human-readable
+        "reject_reasons": list[str],  # quality failures (sensor/contact/battery)
+        "clinical_flags": list[str],  # advisory (elevated skin temp, low SpO2…)
     }
 
 ---------------------------------------------------------------------------
@@ -98,11 +99,42 @@ from typing import Deque, Dict, List, Optional, Tuple
 
 # Hard plausibility ranges. Anything outside is treated as sensor garbage and
 # replaced with the last-good value (if any).
+#
+# Scientific rationale (per peer-reviewed clinical standards):
+#
+#   hr   30..220 bpm — 30 bpm is the His–Purkinje failsafe pacemaker rate;
+#                      some elite endurance athletes reach 28–40 bpm at rest.
+#                      220 bpm is the classic max-HR ceiling (Fox 1971).
+#
+#   spo2 60..100%   — NOT a clinical threshold. 60% is the lower reliable
+#                      measurement range of reflectance PPG oximetry; values
+#                      below this are rejected as sensor noise. Clinical
+#                      hypoxemia alerts (<95% / <90% / <80%) live in the
+#                      downstream rule engine, not here. (WHO Pulse Oximetry
+#                      Training Manual; BTS Guidelines PMC5531304)
+#
+#   temp 25..42 °C  — SKIN (peripheral) temperature at the finger, NOT core
+#                      body temp. Finger skin at thermoneutral rest runs
+#                      32–35 °C (Brajkovic 2001). 25 °C floors cold ambient /
+#                      reduced peripheral perfusion (Raynaud's episodes can
+#                      drop to 18–25 °C — slightly beyond this gate).
+#                      42 °C is a hard plausibility ceiling — peripheral
+#                      readings at this level imply systemic emergency.
+#                      Note: skin runs 4–7 °C below core, so skin 37.5 °C is
+#                      NOT equivalent to core 37.5 °C — the rule engine
+#                      must account for this.
 RANGE = {
     "hr":   (30.0, 220.0),   # bpm
-    "spo2": (60.0, 100.0),   # %
-    "temp": (25.0,  42.0),   # °C (skin)
+    "spo2": (60.0, 100.0),   # % (sensor plausibility, NOT clinical threshold)
+    "temp": (25.0,  42.0),   # °C SKIN (peripheral), not core body temp
 }
+
+# Clinical downstream-alert thresholds. These DO NOT reject the frame — they
+# are surfaced as advisory reasons for the rule engine to act on. Keeping
+# clinical logic explicit and separate from sensor-quality logic.
+CLINICAL_SKIN_TEMP_ELEVATED = 37.5   # °C skin; warrants downstream fever check
+CLINICAL_SPO2_CONCERN       = 94.0   # %; <94% = clinical concern (BTS / WHO)
+CLINICAL_SPO2_HYPOXEMIA     = 90.0   # %; <90% = hypoxemia / medical emergency
 
 # Maximum physically reasonable change per 1-second frame. Jumps bigger than
 # this trigger the despiker (median-of-3 substitution).
@@ -180,6 +212,7 @@ class ProcessedFrame:
 
     accepted:       bool
     reject_reasons: List[str] = field(default_factory=list)
+    clinical_flags: List[str] = field(default_factory=list)
 
     # Diagnostics — not required by the rule engine but useful for debugging.
     raw_status:     Optional[str] = None
@@ -226,6 +259,7 @@ class ProcessedFrame:
             },
             "accepted":       self.accepted,
             "reject_reasons": list(self.reject_reasons),
+            "clinical_flags": list(self.clinical_flags),
         }
 
 
@@ -304,12 +338,29 @@ class _EMA:
 
 class _RRBuffer:
     """
-    Rolling buffer of beat-to-beat (RR) intervals derived from instantaneous HR.
+    Rolling buffer used to produce an "HR stability score" from instantaneous
+    HR values.
 
-    Real RMSSD needs per-beat R-peak timestamps. We only have 1 Hz HR values,
-    so we use RR ≈ 60000/HR as a proxy. This captures HR-stability changes
-    well enough for short-window stress detection but is NOT clinical RMSSD
-    — SQI.hrv is capped at 0.6 to reflect that honestly.
+    IMPORTANT — this is NOT clinical RMSSD / HRV.
+
+    True clinical RMSSD is computed from consecutive R-R intervals at
+    millisecond resolution from an ECG (or a dedicated PPG beat detector).
+    Converting 1 Hz averaged HR values to pseudo-RR intervals via
+    `RR ≈ 60000/HR` fundamentally cannot capture the high-frequency HRV
+    components (0.15–0.4 Hz, respiratory sinus arrhythmia) that constitute
+    the clinically meaningful RMSSD signal — the 1 Hz Nyquist ceiling is
+    0.5 Hz and HR is already pre-averaged by the firmware.
+
+    What this metric DOES capture: short-window HR stability. Useful for
+    relative trend detection against a personal baseline (stress onset,
+    exercise recovery). NOT useful as an absolute clinical HRV measurement.
+
+    Reference: Task Force of ESC / NASPE, 1996, Circulation 93:1043-1065.
+    Ultra-short window validity: Esco & Flatt, 2014, J Sports Sci Med.
+
+    The output field is kept as `hrv_rmssd` for pipeline backward
+    compatibility, but it should be interpreted as an "HR stability score".
+    SQI.hrv is capped at 0.7 to reflect this honestly.
     """
 
     def __init__(self, maxlen: int = 30):
@@ -550,8 +601,20 @@ class Preprocessor:
         return v
 
     # ---------- Stage 4: signal quality check ----------
-    def _sqi(self, v: Dict) -> Tuple[SignalQuality, List[str]]:
+    def _sqi(self, v: Dict) -> Tuple[SignalQuality, List[str], List[str]]:
+        """Returns (sqi, reject_reasons, clinical_flags).
+
+        `reject_reasons` are QUALITY failures that should drop the frame
+        from baseline learning and downstream rule evaluation.
+
+        `clinical_flags` are advisory markers (elevated skin temp, SpO2
+        clinical concern) that DO NOT reject the frame — they're passed
+        to the rule engine as additional context. Quality and clinical
+        concern are deliberately kept separate so a high-quality reading
+        of a sick user still gets analyzed.
+        """
         reasons: List[str] = []
+        clinical: List[str] = []
         sq = SignalQuality()
 
         # --- Contact / charging / battery gates (hard) ---
@@ -572,10 +635,15 @@ class Preprocessor:
         reasons.extend(ppg_reasons)
 
         # --- Heart rate ---
+        # Upper SQI bound = 200 bpm (was 180 bpm).
+        # Scientific correction: maximum predicted HR (Tanaka 2001, JACC 37)
+        # = 208 − 0.7·age. A 20-year-old's MPHR is ~194 bpm; 25-year-old's
+        # ~190 bpm. Young adults routinely reach 185–200 bpm during vigorous
+        # exercise, so 180 bpm was incorrectly rejecting valid readings.
         if v["hr"] is None:
             sq.hr = 0.0
             reasons.append("hr_missing")
-        elif not (40.0 <= v["hr"] <= 180.0):
+        elif not (40.0 <= v["hr"] <= 200.0):
             sq.hr = 0.2
             reasons.append(f"hr_out_of_range ({v['hr']:.0f})")
         else:
@@ -584,12 +652,23 @@ class Preprocessor:
             # with no pulsatile signal behind it is untrustworthy.
             sq.hr = min(base, 0.2 + 0.8 * sq.ppg)
 
-        # --- HRV (proxy, capped) ---
-        sq.hrv = min(0.6, sq.hr)
+        # --- HR-stability score (kept under the `hrv` field name for
+        # backward compatibility with the rule engine) ---
+        # Cap raised from 0.6 → 0.7 per scientific review: for relative
+        # trend detection against a personal baseline (the WUALT use case)
+        # the ultra-short 1 Hz proxy retains more validity than 0.6 implied.
+        # Still below the 1.0 ceiling to flag that this is NOT a clinical
+        # RMSSD measurement.  (Esco & Flatt, 2014, J Sports Sci Med.)
+        sq.hrv = min(0.7, sq.hr)
         if v["hrv_rmssd"] is None:
             sq.hrv = 0.0
 
         # --- Temperature (uses compensated value) ---
+        # Note: this is SKIN (peripheral) temperature, not core body temp.
+        # Finger skin normally runs 32–35 °C at thermoneutral rest; skin
+        # runs ~4–7 °C below core. Quality gate (30–40.5 °C) is separate
+        # from clinical concern threshold (>37.5 °C skin — downstream flag
+        # for possible fever, not a quality failure).
         if v["temp"] is None:
             sq.temp = 0.0
             reasons.append("temp_missing")
@@ -599,15 +678,33 @@ class Preprocessor:
             if v["thermal_bias"] > THERMAL_BIAS_ALERT:
                 sq.temp = max(0.5, sq.temp - v["thermal_bias"])
                 reasons.append(f"thermal_bias ({v['thermal_bias']:.2f}C)")
+            # Advisory-only: clinical elevated-skin-temp marker for the
+            # downstream rule engine. Does NOT reduce SQI or reject the
+            # frame — the reading is still high quality, just clinically
+            # worth flagging. Skin 37.5 °C is NOT equivalent to core
+            # 37.5 °C (skin runs 4–7 °C below core), so this is a
+            # "worth investigating" marker, not a fever diagnosis.
+            if v["temp"] > CLINICAL_SKIN_TEMP_ELEVATED:
+                clinical.append(
+                    f"elevated_skin_temp ({v['temp']:.2f}C)"
+                )
         else:
             sq.temp = 0.3
 
         # --- SpO2 (also bounded by PPG quality) ---
+        # Quality threshold (70%) is intentionally distinct from the
+        # plausibility threshold (60%, in RANGE). Clinical concern tiers
+        # (94% / 90%) are surfaced as advisory reasons but do NOT penalize
+        # SQI — a 92% reading can still be a high-quality measurement.
         if v["spo2"] is None:
             sq.spo2 = 0.0
         elif 70.0 <= v["spo2"] <= 100.0:
             base = 0.9 if v["finger_on"] else 0.3
             sq.spo2 = min(base, 0.2 + 0.8 * sq.ppg)
+            if v["spo2"] < CLINICAL_SPO2_HYPOXEMIA:
+                clinical.append(f"spo2_hypoxemia ({v['spo2']:.1f}%)")
+            elif v["spo2"] < CLINICAL_SPO2_CONCERN:
+                clinical.append(f"spo2_clinical_concern ({v['spo2']:.1f}%)")
         else:
             sq.spo2 = 0.2
 
@@ -629,7 +726,7 @@ class Preprocessor:
                 total_v += val * w
         sq.overall = (total_v / total_w) if total_w > 0 else 0.0
 
-        return sq, reasons
+        return sq, reasons, clinical
 
     # ---------- Public ----------
     def process(self, raw: Dict) -> ProcessedFrame:
@@ -643,9 +740,9 @@ class Preprocessor:
             self.dropped_seq += v["sequence"] - self.last_seq - 1
         self.last_seq = v["sequence"]
 
-        v, cleaned_fields = self._clean(v)
-        v                 = self._normalize(v)
-        sq, reasons       = self._sqi(v)
+        v, cleaned_fields     = self._clean(v)
+        v                     = self._normalize(v)
+        sq, reasons, clinical = self._sqi(v)
 
         accepted = len(reasons) == 0
         if accepted:
@@ -671,6 +768,7 @@ class Preprocessor:
             sqi            = sq,
             accepted       = accepted,
             reject_reasons = reasons,
+            clinical_flags = clinical,
             raw_status     = v.get("status"),
             battery_mv     = int(v["vbat_mv"]) if v.get("vbat_mv") is not None else None,
             die_temp       = v.get("die_temp"),
