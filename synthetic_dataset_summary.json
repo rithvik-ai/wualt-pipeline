@@ -1,0 +1,567 @@
+{
+  "generated_at": "2026-04-16 11:20:35",
+  "random_seed": 42,
+  "total_frames": 9926,
+  "total_scenarios": 2121,
+  "n_profiles": 15,
+  "state_distribution": {
+    "normal": 5401,
+    "stress": 2128,
+    "distress": 2188,
+    "rejected": 209
+  },
+  "category_distribution": {
+    "normal": 2950,
+    "exercise": 1387,
+    "stress": 2128,
+    "distress": 1960,
+    "edge": 1501
+  },
+  "profile_distribution": {
+    "S01": 628,
+    "H01": 750,
+    "S02": 672,
+    "H07": 677,
+    "H05": 680,
+    "H08": 690,
+    "H06": 629,
+    "S03": 645,
+    "H09": 629,
+    "S04": 647,
+    "H03": 633,
+    "H10": 776,
+    "S05": 608,
+    "H02": 655,
+    "H04": 607
+  },
+  "validation": {
+    "accuracy_pct": 65.76,
+    "class_metrics": {
+      "normal": {
+        "precision_pct": 94.6,
+        "recall_pct": 60.9,
+        "f1_pct": 74.1,
+        "true_positives": 3288,
+        "false_positives": 188,
+        "false_negatives": 2113
+      },
+      "stress": {
+        "precision_pct": 49.0,
+        "recall_pct": 45.9,
+        "f1_pct": 47.4,
+        "true_positives": 976,
+        "false_positives": 1015,
+        "false_negatives": 1152
+      },
+      "distress": {
+        "precision_pct": 48.3,
+        "recall_pct": 93.9,
+        "f1_pct": 63.8,
+        "true_positives": 2054,
+        "false_positives": 2196,
+        "false_negatives": 134
+      },
+      "rejected": {
+        "precision_pct": 100.0,
+        "recall_pct": 100.0,
+        "f1_pct": 100.0,
+        "true_positives": 209,
+        "false_positives": 0,
+        "false_negatives": 0
+      }
+    },
+    "confusion_matrix": {
+      "normal": {
+        "normal": 3288,
+        "stress": 932,
+        "distress": 1181,
+        "rejected": 0
+      },
+      "stress": {
+        "normal": 137,
+        "stress": 976,
+        "distress": 1015,
+        "rejected": 0
+      },
+      "distress": {
+        "normal": 51,
+        "stress": 83,
+        "distress": 2054,
+        "rejected": 0
+      },
+      "rejected": {
+        "normal": 0,
+        "stress": 0,
+        "distress": 0,
+        "rejected": 209
+      }
+    }
+  },
+  "columns": [
+    "frame_id",
+    "scenario_id",
+    "scenario_name",
+    "scenario_category",
+    "expected_state",
+    "profile_id",
+    "profile_label",
+    "age",
+    "sex",
+    "fitness",
+    "frame_in_scenario",
+    "total_frames",
+    "hr",
+    "hrv_rmssd",
+    "spo2",
+    "temp",
+    "temp_raw",
+    "dyn_acc_mag",
+    "acc_mag",
+    "acc_x",
+    "acc_y",
+    "acc_z",
+    "finger_on",
+    "charging",
+    "battery_mv",
+    "accepted",
+    "sqi_hr",
+    "sqi_hrv",
+    "sqi_temp",
+    "sqi_acc",
+    "sqi_spo2",
+    "sqi_ppg",
+    "sqi_overall",
+    "z_hr",
+    "z_hrv_rmssd",
+    "z_spo2",
+    "z_temp",
+    "clinical_flags",
+    "reject_reasons",
+    "baseline_ready",
+    "window_n",
+    "window_hr_mean",
+    "window_hr_var",
+    "window_spo2_mean",
+    "window_spo2_var",
+    "window_hrv_mean",
+    "window_hrv_var",
+    "window_temp_mean",
+    "window_temp_var",
+    "baseline_hr",
+    "baseline_hrv",
+    "baseline_spo2",
+    "baseline_temp"
+  ],
+  "profiles": [
+    {
+      "id": "H01",
+      "label": "Healthy young male",
+      "age": 25,
+      "sex": "M",
+      "fitness": "moderate",
+      "resting_hr": 72,
+      "resting_hrv": 35,
+      "resting_spo2": 98.2,
+      "resting_temp": 36.5,
+      "notes": ""
+    },
+    {
+      "id": "H02",
+      "label": "Healthy young female",
+      "age": 28,
+      "sex": "F",
+      "fitness": "moderate",
+      "resting_hr": 76,
+      "resting_hrv": 32,
+      "resting_spo2": 98.0,
+      "resting_temp": 36.6,
+      "notes": ""
+    },
+    {
+      "id": "H03",
+      "label": "Athletic male",
+      "age": 22,
+      "sex": "M",
+      "fitness": "athletic",
+      "resting_hr": 58,
+      "resting_hrv": 52,
+      "resting_spo2": 98.8,
+      "resting_temp": 36.3,
+      "notes": ""
+    },
+    {
+      "id": "H04",
+      "label": "Athletic female",
+      "age": 24,
+      "sex": "F",
+      "fitness": "athletic",
+      "resting_hr": 62,
+      "resting_hrv": 48,
+      "resting_spo2": 98.6,
+      "resting_temp": 36.4,
+      "notes": ""
+    },
+    {
+      "id": "H05",
+      "label": "Sedentary male",
+      "age": 35,
+      "sex": "M",
+      "fitness": "sedentary",
+      "resting_hr": 82,
+      "resting_hrv": 22,
+      "resting_spo2": 97.5,
+      "resting_temp": 36.7,
+      "notes": ""
+    },
+    {
+      "id": "H06",
+      "label": "Sedentary female",
+      "age": 40,
+      "sex": "F",
+      "fitness": "sedentary",
+      "resting_hr": 80,
+      "resting_hrv": 24,
+      "resting_spo2": 97.8,
+      "resting_temp": 36.8,
+      "notes": ""
+    },
+    {
+      "id": "H07",
+      "label": "Older male (60)",
+      "age": 60,
+      "sex": "M",
+      "fitness": "moderate",
+      "resting_hr": 70,
+      "resting_hrv": 20,
+      "resting_spo2": 97.0,
+      "resting_temp": 36.4,
+      "notes": ""
+    },
+    {
+      "id": "H08",
+      "label": "Older female (65)",
+      "age": 65,
+      "sex": "F",
+      "fitness": "sedentary",
+      "resting_hr": 74,
+      "resting_hrv": 18,
+      "resting_spo2": 96.8,
+      "resting_temp": 36.5,
+      "notes": ""
+    },
+    {
+      "id": "H09",
+      "label": "Teen male (16)",
+      "age": 16,
+      "sex": "M",
+      "fitness": "moderate",
+      "resting_hr": 78,
+      "resting_hrv": 38,
+      "resting_spo2": 98.5,
+      "resting_temp": 36.5,
+      "notes": ""
+    },
+    {
+      "id": "H10",
+      "label": "Teen female (17)",
+      "age": 17,
+      "sex": "F",
+      "fitness": "moderate",
+      "resting_hr": 80,
+      "resting_hrv": 36,
+      "resting_spo2": 98.3,
+      "resting_temp": 36.6,
+      "notes": ""
+    },
+    {
+      "id": "S01",
+      "label": "Anxiety disorder",
+      "age": 30,
+      "sex": "F",
+      "fitness": "moderate",
+      "resting_hr": 85,
+      "resting_hrv": 20,
+      "resting_spo2": 97.8,
+      "resting_temp": 36.7,
+      "notes": "Naturally elevated resting HR, lower HRV"
+    },
+    {
+      "id": "S02",
+      "label": "COPD patient",
+      "age": 55,
+      "sex": "M",
+      "fitness": "sedentary",
+      "resting_hr": 78,
+      "resting_hrv": 19,
+      "resting_spo2": 94.5,
+      "resting_temp": 36.6,
+      "notes": "Chronically low SpO2, should not always alarm"
+    },
+    {
+      "id": "S03",
+      "label": "Obese, hypertensive",
+      "age": 45,
+      "sex": "M",
+      "fitness": "sedentary",
+      "resting_hr": 88,
+      "resting_hrv": 16,
+      "resting_spo2": 97.0,
+      "resting_temp": 37.0,
+      "notes": "Higher baseline HR and temp"
+    },
+    {
+      "id": "S04",
+      "label": "Pregnant female (32wk)",
+      "age": 29,
+      "sex": "F",
+      "fitness": "moderate",
+      "resting_hr": 90,
+      "resting_hrv": 22,
+      "resting_spo2": 97.5,
+      "resting_temp": 36.9,
+      "notes": "Elevated resting HR, slightly warmer"
+    },
+    {
+      "id": "S05",
+      "label": "Athlete w/ low resting HR",
+      "age": 26,
+      "sex": "M",
+      "fitness": "athletic",
+      "resting_hr": 48,
+      "resting_hrv": 65,
+      "resting_spo2": 99.0,
+      "resting_temp": 36.2,
+      "notes": "Very low resting HR, very high HRV \u2014 exercise jumps are large"
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "resting_calm",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "User at rest, all vitals at baseline"
+    },
+    {
+      "name": "resting_slight_hr_up",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "Mild HR elevation within normal range (stood up, drank coffee)"
+    },
+    {
+      "name": "sleeping",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "User sleeping \u2014 low HR, high HRV, stable SpO2"
+    },
+    {
+      "name": "light_walking",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "Casual walking \u2014 slight HR bump, motion detected"
+    },
+    {
+      "name": "deep_breathing",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "Relaxation exercise \u2014 HRV transiently high"
+    },
+    {
+      "name": "post_meal",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "After eating \u2014 slightly elevated HR, temp"
+    },
+    {
+      "name": "ambient_temp_shift",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "Moved to warmer environment \u2014 skin temp rises naturally"
+    },
+    {
+      "name": "moderate_exercise",
+      "category": "exercise",
+      "expected_state": "normal",
+      "description": "Jogging / cycling \u2014 HR elevated, high motion, SpO2 normal"
+    },
+    {
+      "name": "vigorous_exercise",
+      "category": "exercise",
+      "expected_state": "normal",
+      "description": "Sprinting / HIIT \u2014 HR very high, strong motion"
+    },
+    {
+      "name": "exercise_cooldown",
+      "category": "exercise",
+      "expected_state": "normal",
+      "description": "Post-exercise cooldown \u2014 HR gradually dropping, still moving slightly"
+    },
+    {
+      "name": "exercise_warmup",
+      "category": "exercise",
+      "expected_state": "normal",
+      "description": "Starting exercise \u2014 HR climbing, motion increasing"
+    },
+    {
+      "name": "stress_hr_mild",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "Mild psychological stress \u2014 HR elevated, other signals normal"
+    },
+    {
+      "name": "stress_hr_moderate",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "Moderate stress \u2014 HR clearly above baseline at rest"
+    },
+    {
+      "name": "stress_hr_absolute",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "HR above absolute 120bpm threshold \u2014 clear stress at rest"
+    },
+    {
+      "name": "stress_spo2_mild",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "SpO2 dip below 94% \u2014 clinical concern, single signal"
+    },
+    {
+      "name": "stress_hrv_suppressed",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "HRV suppression from chronic stress \u2014 HR normal, HRV very low"
+    },
+    {
+      "name": "stress_panic_onset",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "Panic attack onset \u2014 sudden HR spike at rest, HRV drops"
+    },
+    {
+      "name": "distress_hr_spo2",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "HR elevated + SpO2 dropping \u2014 two primary signals"
+    },
+    {
+      "name": "distress_hr_hrv",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "HR elevated + HRV suppressed \u2014 autonomic distress"
+    },
+    {
+      "name": "distress_spo2_hrv",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "SpO2 dropping + HRV suppressed \u2014 respiratory distress pattern"
+    },
+    {
+      "name": "distress_triple_signal",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "HR + SpO2 + HRV all deviated \u2014 severe physiological distress"
+    },
+    {
+      "name": "distress_with_fever",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "HR elevated + temperature elevated + HRV suppressed \u2014 possible infection"
+    },
+    {
+      "name": "emergency_spo2_critical",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "SpO2 < 90% \u2014 medical emergency, immediate escalation"
+    },
+    {
+      "name": "emergency_hr_extreme",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "HR > 150 at rest \u2014 tachycardia emergency"
+    },
+    {
+      "name": "emergency_combined",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "HR > 150 + SpO2 < 90% \u2014 multiple emergency signals"
+    },
+    {
+      "name": "edge_finger_off",
+      "category": "edge",
+      "expected_state": "rejected",
+      "description": "Ring removed / finger not detected \u2014 frame rejected"
+    },
+    {
+      "name": "edge_charging",
+      "category": "edge",
+      "expected_state": "rejected",
+      "description": "Device on charger \u2014 frame rejected"
+    },
+    {
+      "name": "edge_low_sqi",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "Sensor noise \u2014 accepted but SQI very low"
+    },
+    {
+      "name": "edge_transient_hr_spike",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "One-frame HR spike (motion artifact) \u2014 should NOT trigger stress"
+    },
+    {
+      "name": "edge_temp_only_elevated",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "Temperature elevated alone \u2014 weak signal, should stay normal"
+    },
+    {
+      "name": "edge_exercise_plus_spo2",
+      "category": "edge",
+      "expected_state": "distress",
+      "description": "Exercising + SpO2 drops \u2014 should NOT be suppressed"
+    },
+    {
+      "name": "edge_copd_baseline",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "COPD patient with chronically low SpO2 \u2014 should not alarm at their baseline"
+    },
+    {
+      "name": "edge_anxiety_resting",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "Anxiety patient at rest \u2014 higher HR is their normal"
+    },
+    {
+      "name": "edge_recovery_after_distress",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "Returning to normal after a distress episode \u2014 recovery phase"
+    },
+    {
+      "name": "edge_cold_start",
+      "category": "edge",
+      "expected_state": "normal",
+      "description": "Baseline not yet established \u2014 only absolute thresholds active"
+    },
+    {
+      "name": "transition_normal_to_stress",
+      "category": "stress",
+      "expected_state": "stress",
+      "description": "Gradual stress onset \u2014 HR rising over multiple frames"
+    },
+    {
+      "name": "transition_stress_to_distress",
+      "category": "distress",
+      "expected_state": "distress",
+      "description": "Escalating from stress to distress \u2014 SpO2 starts dropping too"
+    },
+    {
+      "name": "transition_distress_to_normal",
+      "category": "normal",
+      "expected_state": "normal",
+      "description": "Distress resolving \u2014 vitals returning to baseline over time"
+    }
+  ]
+}

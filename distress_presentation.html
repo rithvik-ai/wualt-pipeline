@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WUALT — Distress Detection Engine</title>
+<style>
+/* ═══════════════════════════════════════════════════════════
+   DESIGN SYSTEM
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  --bg:        #0a0a0f;
+  --bg-card:   #12121a;
+  --bg-card2:  #1a1a26;
+  --bg-hover:  #1e1e2e;
+  --border:    #2a2a3a;
+  --border-l:  #3a3a50;
+  --text:      #e4e4ef;
+  --text-dim:  #8888a0;
+  --text-muted:#5a5a72;
+  --accent:    #6c63ff;
+  --accent-g:  #4ade80;
+  --accent-y:  #facc15;
+  --accent-r:  #f87171;
+  --accent-o:  #fb923c;
+  --accent-b:  #38bdf8;
+  --normal:    #4ade80;
+  --stress:    #facc15;
+  --distress:  #f87171;
+  --exercise:  #38bdf8;
+  --rejected:  #6b7280;
+  --radius:    12px;
+  --radius-sm: 8px;
+  --shadow:    0 4px 24px rgba(0,0,0,0.4);
+  --font:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:      'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+@font-face { font-family:'Inter'; src:url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap'); }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── Scrollbar ─────────────────────────────────────── */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border-l); border-radius:3px; }
+
+/* ── Layout ────────────────────────────────────────── */
+.container { max-width:1200px; margin:0 auto; padding:0 24px; }
+section { padding: 80px 0; }
+.section-label {
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.section-title {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: -0.5px;
+}
+.section-sub {
+  font-size: 16px;
+  color: var(--text-dim);
+  max-width: 600px;
+  margin-bottom: 40px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HERO
+   ═══════════════════════════════════════════════════════════ */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -20%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(108,99,255,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -30%;
+  right: -10%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(74,222,128,0.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-content { position:relative; z-index:1; }
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(108,99,255,0.1);
+  border: 1px solid rgba(108,99,255,0.25);
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 500;
+  margin-bottom: 28px;
+}
+.hero-badge .dot {
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse-dot 2s infinite;
+}
+@keyframes pulse-dot {
+  0%,100% { opacity:1; transform:scale(1); }
+  50% { opacity:0.4; transform:scale(0.7); }
+}
+.hero h1 {
+  font-size: clamp(40px, 6vw, 72px);
+  font-weight: 800;
+  letter-spacing: -2px;
+  line-height: 1.05;
+  margin-bottom: 20px;
+}
+.hero h1 .grad {
+  background: linear-gradient(135deg, var(--accent), var(--accent-b));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.hero p {
+  font-size: 18px;
+  color: var(--text-dim);
+  max-width: 560px;
+  line-height: 1.7;
+  margin-bottom: 36px;
+}
+.hero-stats {
+  display: flex;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+.hero-stat .num {
+  font-size: 36px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.hero-stat .lbl {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.hero-stat .num.green { color: var(--accent-g); }
+.hero-stat .num.purple { color: var(--accent); }
+.hero-stat .num.blue { color: var(--accent-b); }
+
+/* scroll indicator */
+.scroll-hint {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  animation: float 3s ease-in-out infinite;
+}
+.scroll-hint .arrow {
+  width: 20px; height: 20px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+}
+@keyframes float {
+  0%,100% { transform:translateX(-50%) translateY(0); }
+  50% { transform:translateX(-50%) translateY(8px); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ARCHITECTURE / PIPELINE FLOW
+   ═══════════════════════════════════════════════════════════ */
+.pipeline-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow-x: auto;
+  padding: 20px 0;
+}
+.pipe-step {
+  flex: 1;
+  min-width: 140px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 16px;
+  text-align: center;
+  position: relative;
+  transition: all 0.3s;
+}
+.pipe-step:hover {
+  border-color: var(--accent);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(108,99,255,0.15);
+}
+.pipe-step .step-num {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.pipe-step .step-icon {
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+.pipe-step .step-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.pipe-step .step-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.pipe-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--border-l);
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SIGNAL WEIGHTS
+   ═══════════════════════════════════════════════════════════ */
+.weights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+.weight-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  transition: all 0.3s;
+}
+.weight-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.weight-card .wc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.weight-card .wc-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.weight-card .wc-weight {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--accent);
+}
+.weight-bar {
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.weight-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s ease;
+}
+.weight-card .wc-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.weight-card .wc-thresholds {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.thresh-tag {
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STATE MACHINE
+   ═══════════════════════════════════════════════════════════ */
+.state-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+@media (max-width: 768px) { .state-cards { grid-template-columns: 1fr; } }
+.state-card {
+  border-radius: var(--radius);
+  padding: 32px 24px;
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+.state-card:hover { transform: translateY(-4px); }
+.state-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.state-card.normal { background: linear-gradient(180deg, rgba(74,222,128,0.06), var(--bg-card)); }
+.state-card.normal::before { background: var(--normal); }
+.state-card.stress { background: linear-gradient(180deg, rgba(250,204,21,0.06), var(--bg-card)); }
+.state-card.stress::before { background: var(--stress); }
+.state-card.distress { background: linear-gradient(180deg, rgba(248,113,113,0.06), var(--bg-card)); }
+.state-card.distress::before { background: var(--distress); }
+
+.state-card .sc-icon { font-size: 36px; margin-bottom: 14px; }
+.state-card .sc-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.state-card .sc-sub { font-size: 13px; color: var(--text-dim); margin-bottom: 16px; }
+.state-card .sc-rule {
+  font-size: 12px;
+  font-family: var(--mono);
+  padding: 10px 14px;
+  background: rgba(0,0,0,0.3);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+.state-card .sc-alerts {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 4px;
+}
+.state-card .sc-alerts .alert-ex {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding-left: 14px;
+  border-left: 2px solid var(--border-l);
+  margin-bottom: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIVE SIMULATOR
+   ═══════════════════════════════════════════════════════════ */
+.sim-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .sim-layout { grid-template-columns: 1fr; }
+}
+
+.sim-controls {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  position: sticky;
+  top: 20px;
+}
+.sim-controls h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sim-group {
+  margin-bottom: 20px;
+}
+.sim-group label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.sim-group label .val {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--text);
+  font-size: 14px;
+}
+input[type="range"] {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg);
+  border-radius: 3px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 2px 8px rgba(108,99,255,0.4);
+}
+.sim-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+.preset-btn {
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--font);
+}
+.preset-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(108,99,255,0.1);
+}
+.preset-btn.active {
+  border-color: var(--accent);
+  background: rgba(108,99,255,0.15);
+  color: var(--accent);
+}
+
+.sim-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sim-toggle label { margin-bottom: 0; font-size: 13px; color: var(--text-dim); }
+.toggle-switch {
+  position: relative;
+  width: 40px; height: 22px;
+  background: var(--bg);
+  border-radius: 11px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all 0.3s;
+}
+.toggle-switch.on {
+  background: rgba(108,99,255,0.3);
+  border-color: var(--accent);
+}
+.toggle-switch .toggle-knob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: all 0.3s;
+}
+.toggle-switch.on .toggle-knob {
+  left: 20px;
+  background: var(--accent);
+}
+
+/* Results panel */
+.sim-result {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.sim-result-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sim-result-header .state-badge {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 16px;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.state-badge.normal  { background:rgba(74,222,128,0.12); color:var(--normal); border:1px solid rgba(74,222,128,0.3); }
+.state-badge.stress  { background:rgba(250,204,21,0.12); color:var(--stress); border:1px solid rgba(250,204,21,0.3); }
+.state-badge.distress{ background:rgba(248,113,113,0.12); color:var(--distress); border:1px solid rgba(248,113,113,0.3); }
+
+.sim-result-header .confidence-ring {
+  width: 56px; height: 56px;
+  position: relative;
+}
+.confidence-ring svg { transform: rotate(-90deg); }
+.confidence-ring .conf-text {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+
+.sim-alert {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.sim-alert .alert-severity {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.sim-alert .alert-severity.low { color: var(--normal); }
+.sim-alert .alert-severity.medium { color: var(--stress); }
+.sim-alert .alert-severity.high { color: var(--distress); }
+.sim-alert .alert-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.sim-alert .alert-message {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.sim-signals {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.sim-signals h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+.signal-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.signal-row .sig-name {
+  width: 70px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+.signal-row .sig-bar {
+  flex: 1;
+  height: 24px;
+  background: var(--bg);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.signal-row .sig-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease, background 0.3s;
+  position: relative;
+}
+.signal-row .sig-fill.off { background: rgba(138,138,160,0.2); }
+.signal-row .sig-fill.on  { background: var(--distress); }
+.signal-row .sig-val {
+  width: 70px;
+  text-align: right;
+  font-size: 13px;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+.signal-row .sig-flag {
+  width: 24px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.sim-debug {
+  padding: 20px 24px;
+}
+.sim-debug h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.debug-item {
+  background: var(--bg);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+}
+.debug-item .di-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.debug-item .di-value {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: var(--mono);
+  margin-top: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SCENARIOS TABLE
+   ═══════════════════════════════════════════════════════════ */
+.scenarios-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+table.scenarios {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.scenarios th {
+  background: var(--bg-card);
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+table.scenarios td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+table.scenarios tr:hover td {
+  background: var(--bg-hover);
+}
+table.scenarios tr:last-child td { border-bottom: none; }
+.cat-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.cat-tag.normal   { background:rgba(74,222,128,0.1); color:var(--normal); }
+.cat-tag.stress   { background:rgba(250,204,21,0.1); color:var(--stress); }
+.cat-tag.distress { background:rgba(248,113,113,0.1); color:var(--distress); }
+.cat-tag.exercise { background:rgba(56,189,248,0.1); color:var(--exercise); }
+.cat-tag.edge     { background:rgba(107,114,128,0.15); color:var(--rejected); }
+
+/* ═══════════════════════════════════════════════════════════
+   PROFILES
+   ═══════════════════════════════════════════════════════════ */
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.profile-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: all 0.3s;
+}
+.profile-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.profile-card .pc-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.profile-card .pc-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(108,99,255,0.1);
+  color: var(--accent);
+}
+.profile-card .pc-demo {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.profile-card .pc-name {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.pc-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pc-stat {
+  background: var(--bg);
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.pc-stat .ps-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+.pc-stat .ps-value { font-size: 14px; font-weight: 600; font-family: var(--mono); }
+.profile-card .pc-note {
+  font-size: 11px;
+  color: var(--accent-o);
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: rgba(251,146,60,0.06);
+  border-radius: 6px;
+  border-left: 2px solid var(--accent-o);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DATASET STATS
+   ═══════════════════════════════════════════════════════════ */
+.stat-pills {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+.stat-pill {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 28px;
+  text-align: center;
+  flex: 1;
+  min-width: 160px;
+}
+.stat-pill .sp-num {
+  font-size: 32px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--accent);
+}
+.stat-pill .sp-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.donut-row {
+  display: flex;
+  gap: 32px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.donut-item { text-align: center; }
+.donut-item .donut-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+.donut-item .donut-pct {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOOTER
+   ═══════════════════════════════════════════════════════════ */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+footer a { color: var(--accent); text-decoration: none; }
+
+/* ═══════════════════════════════════════════════════════════
+   NAV
+   ═══════════════════════════════════════════════════════════ */
+nav {
+  position: fixed;
+  top: 0;
+  left: 0; right: 0;
+  z-index: 100;
+  background: rgba(10,10,15,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  transition: transform 0.3s;
+}
+nav .nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+}
+nav .nav-logo {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+nav .nav-logo .ring-icon {
+  width: 24px; height: 24px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  position: relative;
+}
+nav .nav-links {
+  display: flex;
+  gap: 28px;
+  list-style: none;
+}
+nav .nav-links a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+nav .nav-links a:hover { color: var(--text); }
+@media (max-width: 768px) {
+  nav .nav-links { display: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+.fade-in {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.fade-in.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ NAV ═══════════════ -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">
+      <div class="ring-icon"></div>
+      WUALT
+    </div>
+    <ul class="nav-links">
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#states">States</a></li>
+      <li><a href="#signals">Signals</a></li>
+      <li><a href="#simulator">Simulator</a></li>
+      <li><a href="#profiles">Profiles</a></li>
+      <li><a href="#dataset">Dataset</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<section class="hero">
+  <div class="container hero-content">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      Rule-Based · Real-Time · Interpretable
+    </div>
+    <h1>
+      Physiological<br>
+      <span class="grad">Distress Detection</span><br>
+      Engine
+    </h1>
+    <p>
+      A standalone, interpretable engine that detects stress and distress
+      from wearable ring signals — with calm, human-friendly alerts and
+      zero false alarms during exercise.
+    </p>
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="num green">&lt;100ms</div>
+        <div class="lbl">Per evaluation</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num purple">4</div>
+        <div class="lbl">Signal channels</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num blue">3</div>
+        <div class="lbl">Detection states</div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll-hint">
+    <div class="arrow"></div>
+  </div>
+</section>
+
+<!-- ═══════════════ ARCHITECTURE ═══════════════ -->
+<section id="architecture">
+  <div class="container">
+    <div class="section-label">Architecture</div>
+    <div class="section-title">Detection Pipeline</div>
+    <div class="section-sub">Seven-stage evaluation — from raw sensor gate to user-facing alert. Every decision is traceable.</div>
+
+    <div class="pipeline-flow fade-in">
+      <div class="pipe-step">
+        <div class="step-num">Step 1</div>
+        <div class="step-icon">🚪</div>
+        <div class="step-name">Gate</div>
+        <div class="step-desc">Check frame acceptance &amp; SQI quality threshold</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="step-num">Step 2</div>
+        <div class="step-icon">🏃</div>
+        <div class="step-name">Motion</div>
+        <div class="step-desc">Classify: still, walking, active, exercise</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="step-num">Step 3</div>
+        <div class="step-icon">🚩</div>
+        <div class="step-name">Flag</div>
+        <div class="step-desc">Z-score + absolute + clinical per signal</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="step-num">Step 4</div>
+        <div class="step-icon">⚖️</div>
+        <div class="step-name">Score</div>
+        <div class="step-desc">Weighted signal confidence scoring</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="step-num">Step 5</div>
+        <div class="step-icon">⏱️</div>
+        <div class="step-name">Persist</div>
+        <div class="step-desc">60s sustained before promoting state</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="step-num">Step 6</div>
+        <div class="step-icon">🧠</div>
+        <div class="step-name">Decide</div>
+        <div class="step-desc">Normal → Stress → Distress classification</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-step">
+        <div class="step-num">Step 7</div>
+        <div class="step-icon">💬</div>
+        <div class="step-name">Alert</div>
+        <div class="step-desc">STAR-principle, human-friendly message</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ STATES ═══════════════ -->
+<section id="states" style="background:var(--bg-card2);">
+  <div class="container">
+    <div class="section-label">Detection States</div>
+    <div class="section-title">Three-State Model</div>
+    <div class="section-sub">Clear escalation path with persistence requirements and emergency bypass.</div>
+
+    <div class="state-cards fade-in">
+      <div class="state-card normal">
+        <div class="sc-icon">✅</div>
+        <div class="sc-title" style="color:var(--normal)">Normal</div>
+        <div class="sc-sub">All vitals within personal baseline or only weak signals (temp alone).</div>
+        <div class="sc-rule">
+          flags.count == 0<br>
+          OR (flags.temp &amp;&amp; count == 1)
+        </div>
+        <div class="sc-alerts">
+          <div class="alert-ex">"Everything looks steady. You're doing great."</div>
+        </div>
+      </div>
+
+      <div class="state-card stress">
+        <div class="sc-icon">⚡</div>
+        <div class="sc-title" style="color:var(--stress)">Stress</div>
+        <div class="sc-sub">Single primary signal deviating. Must persist ≥60s before alerting.</div>
+        <div class="sc-rule">
+          flags.count == 1<br>
+          AND signal != temp_only<br>
+          AND persistence >= 60s
+        </div>
+        <div class="sc-alerts">
+          <div class="alert-ex">"Your heart rate is a bit higher than usual. If you're not exercising, try to relax."</div>
+        </div>
+      </div>
+
+      <div class="state-card distress">
+        <div class="sc-icon">🚨</div>
+        <div class="sc-title" style="color:var(--distress)">Distress</div>
+        <div class="sc-sub">Two or more primary signals deviating. Emergency signals bypass persistence.</div>
+        <div class="sc-rule">
+          flags.count >= 2<br>
+          AND persistence >= 60s<br>
+          <br>
+          BYPASS: SpO2 &lt; 90%<br>
+          BYPASS: HR &gt; 150 at rest
+        </div>
+        <div class="sc-alerts">
+          <div class="alert-ex">"We're noticing signs of distress. If you're not feeling safe, please reach out to someone you trust."</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ SIGNAL WEIGHTS ═══════════════ -->
+<section id="signals">
+  <div class="container">
+    <div class="section-label">Signal Weights</div>
+    <div class="section-title">Four-Channel Fusion</div>
+    <div class="section-sub">Weighted scoring with physiologically appropriate thresholds. Temperature is deliberately weak — supporting only.</div>
+
+    <div class="weights-grid fade-in">
+      <div class="weight-card">
+        <div class="wc-head">
+          <span class="wc-name">❤️ Heart Rate</span>
+          <span class="wc-weight">0.35</span>
+        </div>
+        <div class="weight-bar"><div class="weight-bar-fill" style="width:100%;background:linear-gradient(90deg,var(--distress),var(--accent-o))"></div></div>
+        <div class="wc-detail">Primary stress indicator. Elevated resting HR strongly correlates with sympathetic activation.</div>
+        <div class="wc-thresholds">
+          <span class="thresh-tag">z &gt; +2.0</span>
+          <span class="thresh-tag">abs &gt; 120 bpm</span>
+          <span class="thresh-tag">emerg &gt; 150 bpm</span>
+        </div>
+      </div>
+
+      <div class="weight-card">
+        <div class="wc-head">
+          <span class="wc-name">💫 SpO2</span>
+          <span class="wc-weight">0.30</span>
+        </div>
+        <div class="weight-bar"><div class="weight-bar-fill" style="width:86%;background:linear-gradient(90deg,var(--accent-b),var(--accent))"></div></div>
+        <div class="wc-detail">Critical safety signal. Desaturation below 94% triggers clinical concern; below 90% is a medical emergency.</div>
+        <div class="wc-thresholds">
+          <span class="thresh-tag">z &lt; -2.0</span>
+          <span class="thresh-tag">abs &lt; 94%</span>
+          <span class="thresh-tag">emerg &lt; 90%</span>
+        </div>
+      </div>
+
+      <div class="weight-card">
+        <div class="wc-head">
+          <span class="wc-name">🌊 HRV (RMSSD)</span>
+          <span class="wc-weight">0.25</span>
+        </div>
+        <div class="weight-bar"><div class="weight-bar-fill" style="width:71%;background:linear-gradient(90deg,var(--accent-g),var(--accent-b))"></div></div>
+        <div class="wc-detail">Autonomic nervous system marker. Suppressed HRV indicates reduced parasympathetic tone — chronic stress signature.</div>
+        <div class="wc-thresholds">
+          <span class="thresh-tag">z &lt; -1.5</span>
+          <span class="thresh-tag">inverted ↓</span>
+        </div>
+      </div>
+
+      <div class="weight-card">
+        <div class="wc-head">
+          <span class="wc-name">🌡️ Skin Temp</span>
+          <span class="wc-weight">0.10</span>
+        </div>
+        <div class="weight-bar"><div class="weight-bar-fill" style="width:29%;background:linear-gradient(90deg,var(--accent-y),var(--accent-o))"></div></div>
+        <div class="wc-detail">Weak supporting signal. Skin ≠ core temperature. Elevated temp alone never triggers stress — only supports other signals.</div>
+        <div class="wc-thresholds">
+          <span class="thresh-tag">z &gt; +2.5</span>
+          <span class="thresh-tag">abs &gt; 37.8°C</span>
+          <span class="thresh-tag">advisory only</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ LIVE SIMULATOR ═══════════════ -->
+<section id="simulator" style="background:var(--bg-card2);">
+  <div class="container">
+    <div class="section-label">Interactive</div>
+    <div class="section-title">Live Simulator</div>
+    <div class="section-sub">Adjust vitals and see how the engine responds in real time. Try the presets for common scenarios.</div>
+
+    <div class="sim-layout">
+      <!-- Controls -->
+      <div class="sim-controls">
+        <h3>⚙️ Input Controls</h3>
+
+        <div style="margin-bottom:16px;">
+          <div class="section-label" style="margin-bottom:10px;">Presets</div>
+          <div class="sim-presets">
+            <button class="preset-btn active" onclick="applyPreset('normal')">Resting</button>
+            <button class="preset-btn" onclick="applyPreset('sleep')">Sleeping</button>
+            <button class="preset-btn" onclick="applyPreset('exercise')">Exercise</button>
+            <button class="preset-btn" onclick="applyPreset('stress_hr')">Stress (HR)</button>
+            <button class="preset-btn" onclick="applyPreset('stress_spo2')">Stress (SpO2)</button>
+            <button class="preset-btn" onclick="applyPreset('distress')">Distress</button>
+            <button class="preset-btn" onclick="applyPreset('emergency')">Emergency</button>
+            <button class="preset-btn" onclick="applyPreset('panic')">Panic</button>
+            <button class="preset-btn" onclick="applyPreset('fever')">Fever</button>
+          </div>
+        </div>
+
+        <div class="sim-group">
+          <label>Heart Rate <span class="val" id="lbl-hr">72 bpm</span></label>
+          <input type="range" id="sl-hr" min="40" max="200" value="72" oninput="updateSim()">
+        </div>
+        <div class="sim-group">
+          <label>SpO2 <span class="val" id="lbl-spo2">98.5%</span></label>
+          <input type="range" id="sl-spo2" min="75" max="100" value="98" step="0.5" oninput="updateSim()">
+        </div>
+        <div class="sim-group">
+          <label>HRV (RMSSD) <span class="val" id="lbl-hrv">35 ms</span></label>
+          <input type="range" id="sl-hrv" min="2" max="120" value="35" oninput="updateSim()">
+        </div>
+        <div class="sim-group">
+          <label>Skin Temp <span class="val" id="lbl-temp">36.5°C</span></label>
+          <input type="range" id="sl-temp" min="340" max="400" value="365" oninput="updateSim()">
+        </div>
+        <div class="sim-group">
+          <label>Motion <span class="val" id="lbl-acc">0.01 g</span></label>
+          <input type="range" id="sl-acc" min="0" max="100" value="1" oninput="updateSim()">
+        </div>
+
+        <div class="sim-toggle" onclick="toggleBaseline()">
+          <div class="toggle-switch on" id="tgl-baseline">
+            <div class="toggle-knob"></div>
+          </div>
+          <label>Baseline ready</label>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div class="sim-result" id="sim-result">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ SCENARIOS ═══════════════ -->
+<section id="scenarios">
+  <div class="container">
+    <div class="section-label">Coverage</div>
+    <div class="section-title">37 Scenario Templates</div>
+    <div class="section-sub">Every scenario is physiologically motivated — from coffee jitters to medical emergencies.</div>
+
+    <div class="scenarios-table-wrap fade-in">
+      <table class="scenarios" id="scenarios-table">
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Category</th>
+            <th>Expected</th>
+            <th>Description</th>
+            <th>HR Δ</th>
+            <th>SpO2 Δ</th>
+            <th>Motion</th>
+          </tr>
+        </thead>
+        <tbody id="scenarios-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ PROFILES ═══════════════ -->
+<section id="profiles" style="background:var(--bg-card2);">
+  <div class="container">
+    <div class="section-label">Demographics</div>
+    <div class="section-title">15 User Profiles</div>
+    <div class="section-sub">Diverse baselines ensure the engine handles real physiological variation — not just textbook normals.</div>
+
+    <div class="profile-grid fade-in" id="profiles-grid"></div>
+  </div>
+</section>
+
+<!-- ═══════════════ DATASET ═══════════════ -->
+<section id="dataset">
+  <div class="container">
+    <div class="section-label">Synthetic Dataset</div>
+    <div class="section-title">Training &amp; Validation Data</div>
+    <div class="section-sub">9,926 labelled frames across all profiles and scenarios — ready for threshold calibration.</div>
+
+    <div class="stat-pills fade-in">
+      <div class="stat-pill">
+        <div class="sp-num">9,926</div>
+        <div class="sp-label">Total Frames</div>
+      </div>
+      <div class="stat-pill">
+        <div class="sp-num">2,121</div>
+        <div class="sp-label">Scenario Instances</div>
+      </div>
+      <div class="stat-pill">
+        <div class="sp-num">15</div>
+        <div class="sp-label">User Profiles</div>
+      </div>
+      <div class="stat-pill">
+        <div class="sp-num">53</div>
+        <div class="sp-label">Columns</div>
+      </div>
+    </div>
+
+    <div class="donut-row fade-in" id="donut-row">
+      <!-- SVG donuts populated by JS -->
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<footer>
+  <div class="container">
+    WUALT Distress Detection Engine · Built for safety, designed for humans.<br>
+    <span style="color:var(--text-muted);">Rule-based · Zero dependencies · &lt;100ms latency</span>
+  </div>
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT ENGINE
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+// ── Configuration (mirrors distress_engine.py) ──────────────
+const ZSCORE_TH = { hr: 2.0, hrv_rmssd: -1.5, spo2: -2.0, temp: 2.5 };
+const ABS_TH    = { hr_high:120, hr_very_high:150, spo2_low:94, spo2_very_low:90, temp_high:37.8 };
+const WEIGHTS   = { hr:0.35, hrv_rmssd:0.25, spo2:0.30, temp:0.10 };
+const MOTION_TH = { still:0.05, walking:0.25, active:0.50 };
+
+// Baseline profile for z-score computation in the simulator
+const BASELINE = { hr:72, hr_std:4, hrv:35, hrv_std:6, spo2:98.5, spo2_std:0.5, temp:36.5, temp_std:0.15 };
+
+// ── Alert pools ─────────────────────────────────────────────
+const ALERTS = {
+  normal:   { title:"All good", message:"Everything looks steady. You're doing great.", severity:"low" },
+  warmup:   { title:"Getting to know you", message:"We're still learning your baseline. Alerts will become more personalized shortly.", severity:"low" },
+  temp_adv: { title:"Slightly warm", message:"Your skin temperature is a bit warmer than usual, but there's no need to worry right now.", severity:"low" },
+  stress_hr:   { title:"Heart rate is up", message:"Your heart rate is a bit higher than usual. If you're not exercising, try to relax and take it easy.", severity:"low" },
+  stress_spo2: { title:"Oxygen dipped slightly", message:"Your oxygen level dipped a little. Try some slow, deep breaths — it usually helps.", severity:"medium" },
+  stress_gen:  { title:"Take a moment", message:"Your body seems a bit stressed right now. Try taking a few slow, deep breaths.", severity:"low" },
+  distress_gen:  { title:"We're here for you", message:"We're noticing signs of distress. If you're not feeling safe, please reach out to someone you trust.", severity:"high" },
+  distress_spo2: { title:"Oxygen is low", message:"Your oxygen level is lower than expected. If you're feeling lightheaded or short of breath, please seek help.", severity:"high" },
+  exercise:    { title:"Active and elevated", message:"Your readings are elevated, but you seem to be moving — this is likely from physical activity.", severity:"low" },
+};
+
+// ── Engine (JS port for the simulator) ──────────────────────
+function classifyMotion(dyn_acc) {
+  if (dyn_acc < MOTION_TH.still) return "still";
+  if (dyn_acc < MOTION_TH.walking) return "walking";
+  if (dyn_acc < MOTION_TH.active) return "active";
+  return "exercise";
+}
+
+function computeZscore(val, mean, std) {
+  return std < 0.01 ? 0 : (val - mean) / std;
+}
+
+function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
+  const motion = classifyMotion(dyn_acc);
+
+  // Z-scores
+  const z_hr   = computeZscore(hr,  BASELINE.hr,  BASELINE.hr_std);
+  const z_spo2 = computeZscore(spo2, BASELINE.spo2, BASELINE.spo2_std);
+  const z_hrv  = computeZscore(hrv, BASELINE.hrv, BASELINE.hrv_std);
+  const z_temp = computeZscore(temp, BASELINE.temp, BASELINE.temp_std);
+
+  // Flags
+  let flags = { hr:false, spo2:false, hrv_rmssd:false, temp:false };
+  let scores = { hr:0, spo2:0, hrv_rmssd:0, temp:0 };
+  let source = "none";
+
+  // Z-score flags
+  if (baselineReady) {
+    source = "zscore";
+    if (z_hr > ZSCORE_TH.hr) { flags.hr = true; scores.hr = (z_hr - ZSCORE_TH.hr)/2 + 0.5; }
+    if (z_hrv < ZSCORE_TH.hrv_rmssd) { flags.hrv_rmssd = true; scores.hrv_rmssd = Math.abs(z_hrv - ZSCORE_TH.hrv_rmssd)/2 + 0.5; }
+    if (z_spo2 < ZSCORE_TH.spo2) { flags.spo2 = true; scores.spo2 = Math.abs(z_spo2 - ZSCORE_TH.spo2)/2 + 0.5; }
+    if (z_temp > ZSCORE_TH.temp) { flags.temp = true; scores.temp = (z_temp - ZSCORE_TH.temp)/3 + 0.3; }
+  }
+
+  // Absolute thresholds
+  if (hr >= ABS_TH.hr_very_high) { flags.hr = true; scores.hr = Math.max(scores.hr, 0.9); source = "absolute"; }
+  else if (hr >= ABS_TH.hr_high && !flags.hr) { flags.hr = true; scores.hr = Math.max(scores.hr, 0.6); source = "absolute"; }
+  if (spo2 <= ABS_TH.spo2_very_low) { flags.spo2 = true; scores.spo2 = Math.max(scores.spo2, 0.9); source = "absolute"; }
+  else if (spo2 <= ABS_TH.spo2_low && !flags.spo2) { flags.spo2 = true; scores.spo2 = Math.max(scores.spo2, 0.6); source = "absolute"; }
+  if (temp >= ABS_TH.temp_high && !flags.temp) { flags.temp = true; scores.temp = Math.max(scores.temp, 0.3); }
+
+  // Clinical flags
+  let clinicalFlags = [];
+  if (spo2 <= 90) clinicalFlags.push(`spo2_hypoxemia (${spo2}%)`);
+  else if (spo2 <= 94) clinicalFlags.push(`spo2_clinical_concern (${spo2}%)`);
+  if (temp >= 37.5) clinicalFlags.push(`elevated_skin_temp (${temp.toFixed(1)}°C)`);
+
+  // Motion suppression
+  if ((motion === "active" || motion === "exercise") && flags.hr && !flags.spo2 && hr < ABS_TH.hr_very_high) {
+    flags.hr = false;
+    scores.hr = 0;
+  }
+
+  // Count
+  const count = [flags.hr, flags.spo2, flags.hrv_rmssd, flags.temp].filter(Boolean).length;
+  const triggered = [];
+  if (flags.hr) triggered.push("hr");
+  if (flags.hrv_rmssd) triggered.push("hrv");
+  if (flags.spo2) triggered.push("spo2");
+  if (flags.temp) triggered.push("temp");
+
+  // State
+  let state = "normal";
+  if (count >= 2) state = "distress";
+  else if (count === 1 && !(flags.temp && count === 1)) state = "stress";
+
+  // Emergency bypass
+  if (spo2 <= ABS_TH.spo2_very_low) state = "distress";
+  if (hr >= ABS_TH.hr_very_high && (motion === "still" || motion === "walking")) {
+    if (state === "normal") state = "stress";
+  }
+
+  // Confidence
+  let confidence;
+  if (state === "normal") {
+    confidence = 0.928;
+  } else {
+    let wscore = 0;
+    if (flags.hr) wscore += WEIGHTS.hr * Math.min(1, scores.hr);
+    if (flags.hrv_rmssd) wscore += WEIGHTS.hrv_rmssd * Math.min(1, scores.hrv_rmssd);
+    if (flags.spo2) wscore += WEIGHTS.spo2 * Math.min(1, scores.spo2);
+    if (flags.temp) wscore += WEIGHTS.temp * Math.min(1, scores.temp);
+    confidence = wscore * 0.5 + 0.3 * 0.3 + 0.2 * 1.0;
+  }
+  confidence = Math.min(1, confidence);
+
+  // Alert selection
+  let alert;
+  if (!baselineReady && state === "normal") alert = ALERTS.warmup;
+  else if (state === "normal" && flags.temp && count <= 1) alert = ALERTS.temp_adv;
+  else if (state === "normal") alert = ALERTS.normal;
+  else if ((motion === "active" || motion === "exercise") && flags.hr && !flags.spo2) alert = ALERTS.exercise;
+  else if (state === "stress" && flags.spo2 && !flags.hr) alert = ALERTS.stress_spo2;
+  else if (state === "stress" && flags.hr && !flags.spo2) alert = ALERTS.stress_hr;
+  else if (state === "stress") alert = ALERTS.stress_gen;
+  else if (state === "distress" && flags.spo2 && scores.spo2 >= 0.8) alert = ALERTS.distress_spo2;
+  else if (state === "distress") alert = ALERTS.distress_gen;
+  else alert = ALERTS.normal;
+
+  return {
+    state, confidence, triggered, alert, motion,
+    flags, scores, count, source,
+    zscores: { hr: z_hr, spo2: z_spo2, hrv: z_hrv, temp: z_temp },
+    clinicalFlags
+  };
+}
+
+// ── Presets ──────────────────────────────────────────────────
+const PRESETS = {
+  normal:     { hr:72,  spo2:98.5, hrv:35, temp:36.5, acc:1,  baseline:true },
+  sleep:      { hr:58,  spo2:98.8, hrv:52, temp:36.2, acc:0,  baseline:true },
+  exercise:   { hr:145, spo2:97,   hrv:15, temp:37.0, acc:65, baseline:true },
+  stress_hr:  { hr:115, spo2:97.5, hrv:22, temp:36.7, acc:2,  baseline:true },
+  stress_spo2:{ hr:80,  spo2:93,   hrv:30, temp:36.6, acc:1,  baseline:true },
+  distress:   { hr:130, spo2:91,   hrv:12, temp:36.8, acc:2,  baseline:true },
+  emergency:  { hr:110, spo2:88,   hrv:18, temp:36.7, acc:1,  baseline:true },
+  panic:      { hr:135, spo2:97,   hrv:8,  temp:37.0, acc:3,  baseline:true },
+  fever:      { hr:90,  spo2:97.5, hrv:20, temp:38.2, acc:1,  baseline:true },
+};
+
+let baselineReady = true;
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  document.getElementById('sl-hr').value = p.hr;
+  document.getElementById('sl-spo2').value = p.spo2;
+  document.getElementById('sl-hrv').value = p.hrv;
+  document.getElementById('sl-temp').value = Math.round(p.temp * 10);
+  document.getElementById('sl-acc').value = p.acc;
+  baselineReady = p.baseline;
+  document.getElementById('tgl-baseline').className = 'toggle-switch' + (baselineReady ? ' on' : '');
+
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  updateSim();
+}
+
+function toggleBaseline() {
+  baselineReady = !baselineReady;
+  document.getElementById('tgl-baseline').className = 'toggle-switch' + (baselineReady ? ' on' : '');
+  updateSim();
+}
+
+function updateSim() {
+  const hr   = +document.getElementById('sl-hr').value;
+  const spo2 = +document.getElementById('sl-spo2').value;
+  const hrv  = +document.getElementById('sl-hrv').value;
+  const temp = +document.getElementById('sl-temp').value / 10;
+  const acc  = +document.getElementById('sl-acc').value / 100;
+
+  document.getElementById('lbl-hr').textContent = `${hr} bpm`;
+  document.getElementById('lbl-spo2').textContent = `${spo2}%`;
+  document.getElementById('lbl-hrv').textContent = `${hrv} ms`;
+  document.getElementById('lbl-temp').textContent = `${temp.toFixed(1)}°C`;
+  document.getElementById('lbl-acc').textContent = `${acc.toFixed(2)} g`;
+
+  const result = evaluate(hr, spo2, hrv, temp, acc, baselineReady);
+  renderResult(result);
+}
+
+function renderResult(r) {
+  const stateColors = { normal:'var(--normal)', stress:'var(--stress)', distress:'var(--distress)' };
+  const col = stateColors[r.state];
+  const confPct = Math.round(r.confidence * 100);
+  const circR = 22;
+  const circC = 2 * Math.PI * circR;
+  const circOffset = circC * (1 - r.confidence);
+
+  const signalData = [
+    { key:'hr',   label:'HR',   val:r.zscores.hr,   flagged:r.flags.hr,   score:r.scores.hr },
+    { key:'spo2', label:'SpO2', val:r.zscores.spo2, flagged:r.flags.spo2, score:r.scores.spo2 },
+    { key:'hrv',  label:'HRV',  val:r.zscores.hrv,  flagged:r.flags.hrv_rmssd, score:r.scores.hrv_rmssd },
+    { key:'temp', label:'Temp', val:r.zscores.temp, flagged:r.flags.temp, score:r.scores.temp },
+  ];
+
+  document.getElementById('sim-result').innerHTML = `
+    <div class="sim-result-header">
+      <div>
+        <span class="state-badge ${r.state}">${r.state}</span>
+        <span style="margin-left:12px;font-size:13px;color:var(--text-dim)">
+          ${r.motion} · ${r.count} signal${r.count!==1?'s':''}
+        </span>
+      </div>
+      <div class="confidence-ring">
+        <svg width="56" height="56">
+          <circle cx="28" cy="28" r="${circR}" fill="none" stroke="var(--border)" stroke-width="4"/>
+          <circle cx="28" cy="28" r="${circR}" fill="none" stroke="${col}" stroke-width="4"
+                  stroke-dasharray="${circC}" stroke-dashoffset="${circOffset}"
+                  stroke-linecap="round"/>
+        </svg>
+        <span class="conf-text" style="color:${col}">${confPct}%</span>
+      </div>
+    </div>
+
+    <div class="sim-alert">
+      <div class="alert-severity ${r.alert.severity}">${r.alert.severity} priority</div>
+      <div class="alert-title">${r.alert.title}</div>
+      <div class="alert-message">"${r.alert.message}"</div>
+    </div>
+
+    <div class="sim-signals">
+      <h4>Signal Analysis</h4>
+      ${signalData.map(s => {
+        const barW = Math.min(100, Math.abs(s.val) / 6 * 100);
+        const fillCls = s.flagged ? 'on' : 'off';
+        const flagIcon = s.flagged ? '🚩' : '·';
+        return `
+          <div class="signal-row">
+            <span class="sig-name">${s.label}</span>
+            <div class="sig-bar">
+              <div class="sig-fill ${fillCls}" style="width:${barW}%"></div>
+            </div>
+            <span class="sig-val" style="color:${s.flagged ? 'var(--distress)' : 'var(--text-dim)'}">
+              z=${s.val >= 0 ? '+' : ''}${s.val.toFixed(1)}
+            </span>
+            <span class="sig-flag">${flagIcon}</span>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    ${r.clinicalFlags.length > 0 ? `
+      <div style="padding:12px 24px;border-bottom:1px solid var(--border);">
+        <h4 style="font-size:12px;font-weight:600;color:var(--accent-o);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">⚕ Clinical Flags</h4>
+        ${r.clinicalFlags.map(f => `<div style="font-size:13px;color:var(--accent-o);font-family:var(--mono);margin-bottom:4px;">• ${f}</div>`).join('')}
+      </div>
+    ` : ''}
+
+    <div class="sim-debug">
+      <h4>Debug Info</h4>
+      <div class="debug-grid">
+        <div class="debug-item">
+          <div class="di-label">Motion</div>
+          <div class="di-value">${r.motion}</div>
+        </div>
+        <div class="debug-item">
+          <div class="di-label">Flag Count</div>
+          <div class="di-value">${r.count}</div>
+        </div>
+        <div class="debug-item">
+          <div class="di-label">Source</div>
+          <div class="di-value">${r.source}</div>
+        </div>
+        <div class="debug-item">
+          <div class="di-label">Weighted</div>
+          <div class="di-value">${(r.flags.hr ? WEIGHTS.hr*Math.min(1,r.scores.hr) : 0 + r.flags.spo2 ? WEIGHTS.spo2*Math.min(1,r.scores.spo2) : 0).toFixed(3)}</div>
+        </div>
+        <div class="debug-item">
+          <div class="di-label">Baseline</div>
+          <div class="di-value">${baselineReady ? 'Ready' : 'Warming'}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ── Scenarios table ─────────────────────────────────────────
+const SCENARIOS_DATA = [
+  { name:"Resting calm", cat:"normal", exp:"normal", desc:"All vitals at baseline", hr:"±3", spo2:"±0.3", motion:"Still" },
+  { name:"Sleeping", cat:"normal", exp:"normal", desc:"Low HR, high HRV, stable", hr:"-8", spo2:"+0.2", motion:"Still" },
+  { name:"Light walking", cat:"normal", exp:"normal", desc:"Casual walking, slight HR bump", hr:"+15", spo2:"±0", motion:"Walking" },
+  { name:"Deep breathing", cat:"normal", exp:"normal", desc:"Relaxation — HRV transiently high", hr:"-3", spo2:"+0.5", motion:"Still" },
+  { name:"Post meal", cat:"normal", exp:"normal", desc:"Slightly elevated HR/temp after eating", hr:"+10", spo2:"±0", motion:"Still" },
+  { name:"Coffee/standup", cat:"normal", exp:"normal", desc:"Mild HR elevation within normal range", hr:"+8", spo2:"±0", motion:"Still" },
+  { name:"Warm environment", cat:"normal", exp:"normal", desc:"Skin temp rises — no concern", hr:"+3", spo2:"±0", motion:"Still" },
+  { name:"Moderate exercise", cat:"exercise", exp:"normal", desc:"Jogging — HR elevated, motion high", hr:"+50", spo2:"-0.5", motion:"Exercise" },
+  { name:"Vigorous exercise", cat:"exercise", exp:"normal", desc:"Sprinting/HIIT — very high HR", hr:"+80", spo2:"-1.0", motion:"Exercise" },
+  { name:"Exercise cooldown", cat:"exercise", exp:"normal", desc:"Post-exercise HR dropping", hr:"+25", spo2:"±0", motion:"Walking" },
+  { name:"Exercise warmup", cat:"exercise", exp:"normal", desc:"Starting exercise — HR climbing", hr:"+20", spo2:"±0", motion:"Active" },
+  { name:"Stress: mild HR", cat:"stress", exp:"stress", desc:"Mild psychological stress", hr:"+25", spo2:"±0", motion:"Still" },
+  { name:"Stress: moderate HR", cat:"stress", exp:"stress", desc:"HR clearly above baseline", hr:"+40", spo2:"±0", motion:"Still" },
+  { name:"Stress: HR absolute", cat:"stress", exp:"stress", desc:"HR above 120bpm threshold", hr:"+45", spo2:"±0", motion:"Still" },
+  { name:"Stress: SpO2 dip", cat:"stress", exp:"stress", desc:"SpO2 below 94% clinical concern", hr:"+5", spo2:"-4.0", motion:"Still" },
+  { name:"Stress: HRV suppressed", cat:"stress", exp:"stress", desc:"Very low HRV — chronic stress", hr:"+5", spo2:"±0", motion:"Still" },
+  { name:"Stress: panic onset", cat:"stress", exp:"stress", desc:"Sudden HR spike, HRV drops", hr:"+35", spo2:"-0.5", motion:"Still" },
+  { name:"Distress: HR + SpO2", cat:"distress", exp:"distress", desc:"Two primary signals deviated", hr:"+45", spo2:"-6.0", motion:"Still" },
+  { name:"Distress: HR + HRV", cat:"distress", exp:"distress", desc:"Autonomic distress pattern", hr:"+40", spo2:"-0.5", motion:"Still" },
+  { name:"Distress: SpO2 + HRV", cat:"distress", exp:"distress", desc:"Respiratory distress pattern", hr:"+10", spo2:"-5.5", motion:"Still" },
+  { name:"Distress: triple signal", cat:"distress", exp:"distress", desc:"HR + SpO2 + HRV all deviated", hr:"+55", spo2:"-7.0", motion:"Still" },
+  { name:"Distress: fever combo", cat:"distress", exp:"distress", desc:"HR + temp + HRV — infection", hr:"+35", spo2:"-1.5", motion:"Still" },
+  { name:"Emergency: SpO2 critical", cat:"distress", exp:"distress", desc:"SpO2 < 90% — immediate", hr:"+25", spo2:"-10", motion:"Still" },
+  { name:"Emergency: HR extreme", cat:"distress", exp:"distress", desc:"HR > 150 at rest", hr:"+80", spo2:"-2.0", motion:"Still" },
+  { name:"Edge: finger off", cat:"edge", exp:"rejected", desc:"Ring removed — frame rejected", hr:"—", spo2:"—", motion:"—" },
+  { name:"Edge: transient spike", cat:"edge", exp:"normal", desc:"One-frame artifact — shouldn't alarm", hr:"+50", spo2:"±0", motion:"Active" },
+  { name:"Edge: temp only", cat:"edge", exp:"normal", desc:"Weak signal alone — stays normal", hr:"+3", spo2:"±0", motion:"Still" },
+  { name:"Edge: exercise + SpO2", cat:"edge", exp:"distress", desc:"NOT suppressed — real danger", hr:"+60", spo2:"-6.0", motion:"Exercise" },
+  { name:"Edge: COPD baseline", cat:"edge", exp:"normal", desc:"Chronically low SpO2 — don't alarm", hr:"±0", spo2:"±0.5", motion:"Still" },
+  { name:"Edge: cold start", cat:"edge", exp:"normal", desc:"Baseline not ready — absolutes only", hr:"±5", spo2:"±0.5", motion:"Still" },
+];
+
+function populateScenarios() {
+  const tbody = document.getElementById('scenarios-tbody');
+  tbody.innerHTML = SCENARIOS_DATA.map(s => `
+    <tr>
+      <td style="font-weight:500;white-space:nowrap;">${s.name}</td>
+      <td><span class="cat-tag ${s.cat}">${s.cat}</span></td>
+      <td><span class="state-badge ${s.exp}" style="font-size:11px;padding:3px 10px;">${s.exp}</span></td>
+      <td style="color:var(--text-dim);font-size:12px;">${s.desc}</td>
+      <td style="font-family:var(--mono);font-size:12px;text-align:center;">${s.hr}</td>
+      <td style="font-family:var(--mono);font-size:12px;text-align:center;">${s.spo2}</td>
+      <td style="font-size:12px;color:var(--text-dim);">${s.motion}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Profiles ────────────────────────────────────────────────
+const PROFILES_DATA = [
+  { id:"H01", label:"Healthy young male",    age:25, sex:"M", fit:"moderate", hr:72, hrv:35, spo2:98.2, temp:36.5 },
+  { id:"H02", label:"Healthy young female",  age:28, sex:"F", fit:"moderate", hr:76, hrv:32, spo2:98.0, temp:36.6 },
+  { id:"H03", label:"Athletic male",         age:22, sex:"M", fit:"athletic", hr:58, hrv:52, spo2:98.8, temp:36.3 },
+  { id:"H04", label:"Athletic female",       age:24, sex:"F", fit:"athletic", hr:62, hrv:48, spo2:98.6, temp:36.4 },
+  { id:"H05", label:"Sedentary male",        age:35, sex:"M", fit:"sedentary",hr:82, hrv:22, spo2:97.5, temp:36.7 },
+  { id:"H06", label:"Sedentary female",      age:40, sex:"F", fit:"sedentary",hr:80, hrv:24, spo2:97.8, temp:36.8 },
+  { id:"H07", label:"Older male (60)",       age:60, sex:"M", fit:"moderate", hr:70, hrv:20, spo2:97.0, temp:36.4 },
+  { id:"H08", label:"Older female (65)",     age:65, sex:"F", fit:"sedentary",hr:74, hrv:18, spo2:96.8, temp:36.5 },
+  { id:"H09", label:"Teen male (16)",        age:16, sex:"M", fit:"moderate", hr:78, hrv:38, spo2:98.5, temp:36.5 },
+  { id:"H10", label:"Teen female (17)",      age:17, sex:"F", fit:"moderate", hr:80, hrv:36, spo2:98.3, temp:36.6 },
+  { id:"S01", label:"Anxiety disorder",      age:30, sex:"F", fit:"moderate", hr:85, hrv:20, spo2:97.8, temp:36.7, note:"Naturally elevated HR, lower HRV" },
+  { id:"S02", label:"COPD patient",          age:55, sex:"M", fit:"sedentary",hr:78, hrv:19, spo2:94.5, temp:36.6, note:"Chronically low SpO2" },
+  { id:"S03", label:"Obese, hypertensive",   age:45, sex:"M", fit:"sedentary",hr:88, hrv:16, spo2:97.0, temp:37.0, note:"Higher baseline HR and temp" },
+  { id:"S04", label:"Pregnant (32wk)",       age:29, sex:"F", fit:"moderate", hr:90, hrv:22, spo2:97.5, temp:36.9, note:"Elevated resting HR" },
+  { id:"S05", label:"Ultra-fit athlete",     age:26, sex:"M", fit:"athletic", hr:48, hrv:65, spo2:99.0, temp:36.2, note:"Very low resting HR, very high HRV" },
+];
+
+function populateProfiles() {
+  const grid = document.getElementById('profiles-grid');
+  grid.innerHTML = PROFILES_DATA.map(p => `
+    <div class="profile-card">
+      <div class="pc-head">
+        <span class="pc-id">${p.id}</span>
+        <span class="pc-demo">${p.age}${p.sex} · ${p.fit}</span>
+      </div>
+      <div class="pc-name">${p.label}</div>
+      <div class="pc-stats">
+        <div class="pc-stat"><div class="ps-label">HR</div><div class="ps-value">${p.hr} <small>bpm</small></div></div>
+        <div class="pc-stat"><div class="ps-label">HRV</div><div class="ps-value">${p.hrv} <small>ms</small></div></div>
+        <div class="pc-stat"><div class="ps-label">SpO2</div><div class="ps-value">${p.spo2}<small>%</small></div></div>
+        <div class="pc-stat"><div class="ps-label">Temp</div><div class="ps-value">${p.temp}<small>°C</small></div></div>
+      </div>
+      ${p.note ? `<div class="pc-note">${p.note}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+// ── Dataset donuts ──────────────────────────────────────────
+function drawDonuts() {
+  const data = [
+    { label:"Normal", pct:54.4, color:"var(--normal)" },
+    { label:"Stress", pct:21.4, color:"var(--stress)" },
+    { label:"Distress", pct:22.0, color:"var(--distress)" },
+    { label:"Rejected", pct:2.1, color:"var(--rejected)" },
+  ];
+  const row = document.getElementById('donut-row');
+  row.innerHTML = data.map(d => {
+    const r = 36;
+    const c = 2 * Math.PI * r;
+    const offset = c * (1 - d.pct/100);
+    return `
+      <div class="donut-item">
+        <svg width="90" height="90" style="transform:rotate(-90deg)">
+          <circle cx="45" cy="45" r="${r}" fill="none" stroke="var(--border)" stroke-width="8"/>
+          <circle cx="45" cy="45" r="${r}" fill="none" stroke="${d.color}" stroke-width="8"
+                  stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+        </svg>
+        <div class="donut-label">${d.label}</div>
+        <div class="donut-pct">${d.pct}%</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Scroll animations ───────────────────────────────────────
+function initScrollAnimations() {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) e.target.classList.add('visible');
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+}
+
+// ── Init ────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  populateScenarios();
+  populateProfiles();
+  drawDonuts();
+  initScrollAnimations();
+  updateSim();
+});
+</script>
+
+</body>
+</html>
