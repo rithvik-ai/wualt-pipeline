@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WUALT — Distress Detection Engine</title>
+<title>WUALT — Distress Detection &amp; Safety Intelligence Engine</title>
 <style>
 /* ═══════════════════════════════════════════════════════════
    DESIGN SYSTEM
@@ -29,6 +29,12 @@
   --distress:  #f87171;
   --exercise:  #38bdf8;
   --rejected:  #6b7280;
+  --risk-normal:   #4ade80;
+  --risk-low:      #86efac;
+  --risk-moderate: #facc15;
+  --risk-high:     #fb923c;
+  --risk-critical: #ef4444;
+  --geo-accent:    #a78bfa;
   --radius:    12px;
   --radius-sm: 8px;
   --shadow:    0 4px 24px rgba(0,0,0,0.4);
@@ -890,6 +896,236 @@ nav .nav-links a:hover { color: var(--text); }
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   GEOSPATIAL SAFETY SIMULATOR
+   ═══════════════════════════════════════════════════════════ */
+.geo-layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .geo-layout { grid-template-columns: 1fr; }
+}
+
+.geo-controls {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  position: sticky;
+  top: 20px;
+}
+.geo-controls h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.geo-sub-title {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--geo-accent);
+  font-weight: 600;
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.geo-sub-title:first-of-type { border-top: none; padding-top: 0; }
+
+.geo-toggle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.geo-toggle-btn {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+.geo-toggle-btn.on {
+  background: rgba(167,139,250,0.12);
+  border-color: var(--geo-accent);
+  color: var(--geo-accent);
+  font-weight: 500;
+}
+.geo-toggle-btn:hover {
+  border-color: var(--border-l);
+}
+
+.geo-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.geo-preset-btn {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 5px 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.geo-preset-btn.active {
+  background: rgba(167,139,250,0.15);
+  border-color: var(--geo-accent);
+  color: var(--geo-accent);
+}
+.geo-preset-btn:hover {
+  border-color: var(--border-l);
+  color: var(--text);
+}
+
+.geo-result {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.risk-header {
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.risk-badge {
+  display: inline-block;
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.risk-badge.normal      { background: rgba(74,222,128,0.15); color: var(--risk-normal); }
+.risk-badge.low_risk    { background: rgba(134,239,172,0.15); color: var(--risk-low); }
+.risk-badge.moderate_risk { background: rgba(250,204,21,0.15); color: var(--risk-moderate); }
+.risk-badge.high_risk   { background: rgba(251,146,60,0.15); color: var(--risk-high); }
+.risk-badge.critical    { background: rgba(239,68,68,0.15); color: var(--risk-critical); }
+
+.risk-score-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.risk-score-text {
+  position: absolute;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+
+.risk-reasoning {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.risk-reasoning h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.risk-reason-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  font-family: var(--mono);
+}
+.risk-reason-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.risk-action {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.risk-action strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.geo-context-pills {
+  padding: 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.ctx-pill {
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-family: var(--mono);
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.ctx-pill.active {
+  background: rgba(167,139,250,0.1);
+  border-color: var(--geo-accent);
+  color: var(--geo-accent);
+}
+.ctx-pill.warn {
+  background: rgba(251,146,60,0.1);
+  border-color: var(--accent-o);
+  color: var(--accent-o);
+}
+
+.risk-layers {
+  padding: 16px 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+.risk-layer-card {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  text-align: center;
+}
+.risk-layer-card .rl-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.risk-layer-card .rl-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+
 </style>
 </head>
 <body>
@@ -905,7 +1141,8 @@ nav .nav-links a:hover { color: var(--text); }
       <li><a href="#architecture">Architecture</a></li>
       <li><a href="#states">States</a></li>
       <li><a href="#signals">Signals</a></li>
-      <li><a href="#simulator">Simulator</a></li>
+      <li><a href="#simulator">Physio Sim</a></li>
+      <li><a href="#geo-simulator">Safety Sim</a></li>
       <li><a href="#profiles">Profiles</a></li>
       <li><a href="#dataset">Dataset</a></li>
     </ul>
@@ -920,14 +1157,15 @@ nav .nav-links a:hover { color: var(--text); }
       Rule-Based · Real-Time · Interpretable
     </div>
     <h1>
-      Physiological<br>
-      <span class="grad">Distress Detection</span><br>
+      Safety<br>
+      <span class="grad">Intelligence</span><br>
       Engine
     </h1>
     <p>
-      A standalone, interpretable engine that detects stress and distress
-      from wearable ring signals — with calm, human-friendly alerts and
-      zero false alarms during exercise.
+      A standalone, interpretable engine that combines physiological distress
+      detection with geospatial context — location, time, movement, and
+      familiarity — to produce unified safety risk assessments with calm,
+      human-friendly alerts.
     </p>
     <div class="hero-stats">
       <div class="hero-stat">
@@ -935,12 +1173,12 @@ nav .nav-links a:hover { color: var(--text); }
         <div class="lbl">Per evaluation</div>
       </div>
       <div class="hero-stat">
-        <div class="num purple">4</div>
-        <div class="lbl">Signal channels</div>
+        <div class="num purple">3</div>
+        <div class="lbl">Detection layers</div>
       </div>
       <div class="hero-stat">
-        <div class="num blue">3</div>
-        <div class="lbl">Detection states</div>
+        <div class="num blue">5</div>
+        <div class="lbl">Risk levels</div>
       </div>
     </div>
   </div>
@@ -1193,6 +1431,79 @@ nav .nav-links a:hover { color: var(--text); }
   </div>
 </section>
 
+<!-- ═══════════════ GEOSPATIAL SAFETY SIMULATOR ═══════════════ -->
+<section id="geo-simulator">
+  <div class="container">
+    <div class="section-label" style="color:var(--geo-accent);">Safety Intelligence</div>
+    <div class="section-title">Geospatial Safety Simulator</div>
+    <div class="section-sub">Combine physiological state with location, time, movement, and familiarity context. See how context amplifies or suppresses risk.</div>
+
+    <div class="geo-layout">
+      <!-- Controls -->
+      <div class="geo-controls">
+        <h3>🌍 Context Controls</h3>
+
+        <div style="margin-bottom:12px;">
+          <div class="geo-sub-title" style="border-top:none;padding-top:0;margin-top:0;">Presets</div>
+          <div class="geo-presets">
+            <button class="geo-preset-btn active" onclick="applyGeoPreset('home_normal')">Home Safe</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('gym_stress')">Gym Stress</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('work_stress')">Work Stress</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('evening_walk')">Evening Walk</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('night_unfamiliar')">Night Distress</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('vehicle_stop')">Vehicle Stop</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('critical')">Critical</button>
+            <button class="geo-preset-btn" onclick="applyGeoPreset('travel_night')">Night Travel</button>
+          </div>
+        </div>
+
+        <div class="geo-sub-title">Physiology</div>
+        <div class="sim-group">
+          <label>Heart Rate <span class="val" id="geo-lbl-hr">72 bpm</span></label>
+          <input type="range" id="geo-sl-hr" min="40" max="200" value="72" oninput="updateGeoSim()">
+        </div>
+        <div class="sim-group">
+          <label>SpO2 <span class="val" id="geo-lbl-spo2">98.5%</span></label>
+          <input type="range" id="geo-sl-spo2" min="75" max="100" value="98" step="0.5" oninput="updateGeoSim()">
+        </div>
+
+        <div class="geo-sub-title">Time</div>
+        <div class="sim-group">
+          <label>Hour of Day <span class="val" id="geo-lbl-hour">14:00</span></label>
+          <input type="range" id="geo-sl-hour" min="0" max="23" value="14" oninput="updateGeoSim()">
+        </div>
+
+        <div class="geo-sub-title">Location</div>
+        <div class="geo-toggle-grid">
+          <button class="geo-toggle-btn on" id="geo-btn-home" onclick="toggleGeo('home')">🏠 Home Zone</button>
+          <button class="geo-toggle-btn" id="geo-btn-work" onclick="toggleGeo('work')">🏢 Work Zone</button>
+          <button class="geo-toggle-btn" id="geo-btn-known" onclick="toggleGeo('known')">📍 Known Area</button>
+          <button class="geo-toggle-btn" id="geo-btn-unfamiliar" onclick="toggleGeo('unfamiliar')">❓ Unfamiliar</button>
+        </div>
+        <div class="sim-group" style="margin-top:12px;">
+          <label>Distance from Home <span class="val" id="geo-lbl-dist">0.1 km</span></label>
+          <input type="range" id="geo-sl-dist" min="0" max="100" value="0" oninput="updateGeoSim()">
+        </div>
+
+        <div class="geo-sub-title">Movement</div>
+        <div class="geo-toggle-grid">
+          <button class="geo-toggle-btn on" id="geo-btn-stationary" onclick="toggleGeo('stationary')">🧍 Stationary</button>
+          <button class="geo-toggle-btn" id="geo-btn-walking" onclick="toggleGeo('walking')">🚶 Walking</button>
+          <button class="geo-toggle-btn" id="geo-btn-vehicle" onclick="toggleGeo('vehicle')">🚗 Vehicle</button>
+          <button class="geo-toggle-btn" id="geo-btn-route" onclick="toggleGeo('route')">↩️ Route Change</button>
+          <button class="geo-toggle-btn" id="geo-btn-stop" onclick="toggleGeo('stop')">⛔ Sudden Stop</button>
+          <button class="geo-toggle-btn on" id="geo-btn-phone" onclick="toggleGeo('phone')">📱 Phone On</button>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div class="geo-result" id="geo-result">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ═══════════════ SCENARIOS ═══════════════ -->
 <section id="scenarios">
   <div class="container">
@@ -1265,8 +1576,8 @@ nav .nav-links a:hover { color: var(--text); }
 <!-- ═══════════════ FOOTER ═══════════════ -->
 <footer>
   <div class="container">
-    WUALT Distress Detection Engine · Built for safety, designed for humans.<br>
-    <span style="color:var(--text-muted);">Rule-based · Zero dependencies · &lt;100ms latency</span>
+    WUALT Safety Intelligence Engine · Built for safety, designed for humans.<br>
+    <span style="color:var(--text-muted);">Rule-based · Physiological + Geospatial · &lt;100ms latency · Privacy-first</span>
   </div>
 </footer>
 
@@ -1276,7 +1587,7 @@ nav .nav-links a:hover { color: var(--text); }
 <script>
 // ── Configuration (mirrors distress_engine.py) ──────────────
 const ZSCORE_TH = { hr: 2.0, hrv_rmssd: -1.5, spo2: -2.0, temp: 2.5 };
-const ABS_TH    = { hr_high:120, hr_very_high:150, spo2_low:94, spo2_very_low:90, temp_high:37.8 };
+const ABS_TH    = { hr_high:120, hr_very_high:150, spo2_low:95, spo2_very_low:90, temp_high:37.8 };
 const WEIGHTS   = { hr:0.35, hrv_rmssd:0.25, spo2:0.30, temp:0.10 };
 const MOTION_TH = { still:0.05, walking:0.25, active:0.50 };
 
@@ -1678,6 +1989,390 @@ function initScrollAnimations() {
   document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
 }
 
+// ═══════════════════════════════════════════════════════════
+//  GEOSPATIAL SAFETY ENGINE (JS port)
+// ═══════════════════════════════════════════════════════════
+
+const GEO_WEIGHTS = { time:0.25, location:0.30, movement:0.25, connectivity:0.10, familiarity:0.10 };
+const TIME_RISK   = { late_night:0.9, night:0.6, early_morning:0.4, daytime:0.1 };
+const RISK_TH     = { critical:0.80, high_risk:0.60, moderate_risk:0.40, low_risk:0.20 };
+
+const GEO_ALERTS = {
+  normal:   { title:"All clear", message:"You seem to be in a familiar place and everything looks fine. We're here if you need us.", severity:"low" },
+  low:      { title:"Keeping an eye out", message:"Things look mostly fine, but we noticed a small change. We'll keep monitoring quietly.", severity:"low" },
+  moderate: { title:"Stay aware", message:"We're picking up some signs worth noting. If you feel uneasy, consider reaching out to someone you trust.", severity:"medium" },
+  moderate_route: { title:"Unexpected route change", message:"We noticed you've deviated from your usual path. If everything's fine, no action needed — we're just keeping watch.", severity:"medium" },
+  moderate_phone: { title:"Phone connection lost", message:"We've lost connection to your phone. If you're in an unfamiliar area, try to stay in well-lit, public spaces.", severity:"medium" },
+  high:     { title:"We're concerned", message:"We noticed signs of distress in an unfamiliar setting. Are you okay? Consider contacting someone you trust.", severity:"high" },
+  high2:    { title:"Something seems unusual", message:"Your body is showing signs of stress and your surroundings seem unusual. Would you like to check in with a trusted contact?", severity:"high" },
+  high3:    { title:"Please be careful", message:"We're detecting concerning signals. If you feel unsafe, please reach out to someone or move to a safe place.", severity:"high" },
+  critical: { title:"Emergency — are you safe?", message:"Multiple warning signs detected. If you're in danger, please call for help or press the emergency button. We can alert your trusted contacts.", severity:"high" },
+  critical2:{ title:"We need to know you're okay", message:"Serious concern detected. If you can't respond, we'll notify your emergency contact shortly.", severity:"high" },
+};
+
+const RECOMMENDED = {
+  normal:        "No action needed. Continue monitoring.",
+  low_risk:      "Passive monitoring. Log context for pattern analysis.",
+  moderate_risk: "Suggest user check in. Enable quick-access to emergency contacts.",
+  high_risk:     "Prompt user to confirm safety. Prepare to notify trusted contacts.",
+  critical:      "Initiate safety protocol. Notify emergency contacts if no response within 60s.",
+};
+
+function scoreTimeRisk(hour) {
+  const reasons = [];
+  let score;
+  if (hour >= 23 || hour < 5) { score = TIME_RISK.late_night; reasons.push(`late night (${String(hour).padStart(2,'0')}:00)`); }
+  else if (hour >= 20) { score = TIME_RISK.night; reasons.push(`nighttime (${String(hour).padStart(2,'0')}:00)`); }
+  else if (hour >= 5 && hour < 7) { score = TIME_RISK.early_morning; reasons.push(`early morning (${String(hour).padStart(2,'0')}:00)`); }
+  else { score = TIME_RISK.daytime; }
+  return { score, reasons };
+}
+
+function scoreLocationRisk(ctx) {
+  let score = 0;
+  const reasons = [];
+  if (ctx.is_home_zone) score = 0.0;
+  else if (ctx.is_work_zone) score = 0.05;
+  else if (ctx.is_known_area) score = 0.15;
+  else if (ctx.is_unfamiliar_area) { score = 0.7; reasons.push("unfamiliar area"); }
+
+  if (ctx.distance_from_home_km >= 50) { score = Math.min(1, score + 0.24); reasons.push(`${ctx.distance_from_home_km.toFixed(1)} km from home`); }
+  else if (ctx.distance_from_home_km >= 20) { score = Math.min(1, score + 0.18); reasons.push(`${ctx.distance_from_home_km.toFixed(1)} km from home`); }
+  else if (ctx.distance_from_home_km >= 5) { score = Math.min(1, score + 0.09); reasons.push(`${ctx.distance_from_home_km.toFixed(1)} km from home`); }
+  return { score, reasons };
+}
+
+function scoreMovementRisk(ctx) {
+  let score = 0;
+  const reasons = [];
+  if (ctx.sudden_route_change) { score += 0.5; reasons.push("sudden route deviation"); }
+  if (ctx.sudden_stop) { score += 0.4; reasons.push("sudden stop detected"); }
+  if (ctx.is_vehicle_like_motion && ctx.is_night) { score += 0.2; reasons.push("vehicle motion at night"); }
+  return { score: Math.min(1, score), reasons };
+}
+
+function computeContextScore(ctx) {
+  const time = scoreTimeRisk(ctx.hour_of_day);
+  const loc = scoreLocationRisk(ctx);
+  const move = scoreMovementRisk(ctx);
+  const conn = { score: ctx.phone_connected ? 0 : 0.8, reasons: ctx.phone_connected ? [] : ["phone disconnected"] };
+  const fam = { score: (ctx.is_unfamiliar_area && !ctx.is_known_area) ? 0.6 : 0 };
+
+  const combined =
+    GEO_WEIGHTS.time * time.score +
+    GEO_WEIGHTS.location * loc.score +
+    GEO_WEIGHTS.movement * move.score +
+    GEO_WEIGHTS.connectivity * conn.score +
+    GEO_WEIGHTS.familiarity * fam.score;
+
+  const reasons = [...time.reasons, ...loc.reasons, ...move.reasons, ...conn.reasons];
+  return { score: Math.min(1, combined), reasons };
+}
+
+function evaluateSafety(physioState, physioConf, physioSignals, ctx) {
+  const { score: contextScore, reasons: contextReasons } = computeContextScore(ctx);
+
+  const reasoning = [];
+  if (physioState === "distress") reasoning.push("distress state detected");
+  else if (physioState === "stress") reasoning.push("stress state detected");
+  if (physioSignals.length > 0) reasoning.push(`signals: ${physioSignals.join(', ')}`);
+  reasoning.push(...contextReasons);
+
+  // Base risk
+  const PHYSIO_BASE = { normal: 0.05, stress: 0.35, distress: 0.70 };
+  let physioBase = (PHYSIO_BASE[physioState] || 0.05) * Math.max(0.3, physioConf);
+  const contextAmp = 0.8 + contextScore * 0.7;
+  let riskScore = physioBase * contextAmp;
+
+  if (physioState === "normal" && contextScore > 0.6) riskScore = Math.max(riskScore, 0.15);
+
+  // Suppression
+  if (ctx.is_home_zone && !ctx.is_night && !ctx.sudden_route_change && !ctx.sudden_stop && physioState === "stress") {
+    riskScore *= 0.5; reasoning.push("suppressed: home zone, daytime");
+  } else if (ctx.is_work_zone && ctx.hour_of_day >= 7 && ctx.hour_of_day <= 20 && !ctx.sudden_stop && physioState === "stress") {
+    riskScore *= 0.6; reasoning.push("suppressed: work zone, business hours");
+  } else if (ctx.is_known_area && ctx.is_walking && !ctx.is_night && !ctx.sudden_route_change && physioState === "stress") {
+    riskScore *= 0.7; reasoning.push("suppressed: known area, walking, daytime");
+  }
+
+  // Escalation patterns
+  if (physioState === "distress" && ctx.is_night && ctx.is_unfamiliar_area && !ctx.phone_connected) {
+    riskScore = Math.max(riskScore, 0.90); reasoning.push("critical: distress + night + unfamiliar + no phone");
+  }
+  if (physioState === "distress" && ctx.sudden_stop && ctx.is_unfamiliar_area) {
+    riskScore = Math.max(riskScore, 0.85); reasoning.push("critical: distress + sudden stop + unfamiliar");
+  }
+  if (physioState === "distress" && ctx.is_night && ctx.is_unfamiliar_area) {
+    riskScore = Math.max(riskScore, 0.75); reasoning.push("high risk: distress at night in unfamiliar area");
+  }
+  if (physioState === "distress" && ctx.sudden_route_change) {
+    riskScore = Math.max(riskScore, 0.70); reasoning.push("high risk: distress with route deviation");
+  }
+  if (physioState === "stress" && ctx.is_night && ctx.is_unfamiliar_area && ctx.distance_from_home_km > 10) {
+    riskScore = Math.max(riskScore, 0.55); reasoning.push("elevated: stress at night, far from home");
+  }
+  if ((physioState === "stress" || physioState === "distress") && ctx.is_vehicle_like_motion && ctx.sudden_stop) {
+    riskScore = Math.max(riskScore, 0.65); reasoning.push("elevated: vehicle sudden stop");
+  }
+  if (!ctx.phone_connected && ctx.is_unfamiliar_area && ctx.is_night) {
+    riskScore = Math.max(riskScore, 0.50); reasoning.push("elevated: phone lost at night, unfamiliar");
+  }
+
+  riskScore = Math.min(1, riskScore);
+
+  // Risk level
+  let riskLevel;
+  if (riskScore >= RISK_TH.critical) riskLevel = "critical";
+  else if (riskScore >= RISK_TH.high_risk) riskLevel = "high_risk";
+  else if (riskScore >= RISK_TH.moderate_risk) riskLevel = "moderate_risk";
+  else if (riskScore >= RISK_TH.low_risk) riskLevel = "low_risk";
+  else riskLevel = "normal";
+
+  // Alert selection
+  let alert;
+  const hasRoute = reasoning.some(r => r.includes("route"));
+  const hasPhone = reasoning.some(r => r.includes("phone"));
+  if (riskLevel === "critical") alert = GEO_ALERTS[Math.random() > 0.5 ? 'critical' : 'critical2'];
+  else if (riskLevel === "high_risk") alert = GEO_ALERTS[['high','high2','high3'][Math.floor(Math.random()*3)]];
+  else if (riskLevel === "moderate_risk") {
+    if (hasRoute) alert = GEO_ALERTS.moderate_route;
+    else if (hasPhone) alert = GEO_ALERTS.moderate_phone;
+    else alert = GEO_ALERTS.moderate;
+  }
+  else if (riskLevel === "low_risk") alert = GEO_ALERTS.low;
+  else alert = GEO_ALERTS.normal;
+
+  return { riskLevel, riskScore, reasoning, alert, contextScore, action: RECOMMENDED[riskLevel] };
+}
+
+// ── Geo state ───────────────────────────────────────────────
+let geoState = {
+  is_home_zone: true, is_work_zone: false,
+  is_known_area: true, is_unfamiliar_area: false,
+  is_stationary: true, is_walking: false,
+  is_vehicle_like_motion: false,
+  sudden_route_change: false, sudden_stop: false,
+  phone_connected: true,
+  hour_of_day: 14, is_night: false,
+  distance_from_home_km: 0.1,
+};
+
+const GEO_PRESETS = {
+  home_normal: {
+    hr:72, spo2:98.5, hour:14, home:true, work:false, known:true, unfamiliar:false,
+    dist:0.1, stationary:true, walking:false, vehicle:false, route:false, stop:false, phone:true,
+  },
+  gym_stress: {
+    hr:110, spo2:97, hour:10, home:false, work:false, known:true, unfamiliar:false,
+    dist:1.5, stationary:false, walking:true, vehicle:false, route:false, stop:false, phone:true,
+  },
+  work_stress: {
+    hr:100, spo2:97.5, hour:11, home:false, work:true, known:true, unfamiliar:false,
+    dist:3, stationary:true, walking:false, vehicle:false, route:false, stop:false, phone:true,
+  },
+  evening_walk: {
+    hr:82, spo2:98, hour:20, home:false, work:false, known:true, unfamiliar:false,
+    dist:0.5, stationary:false, walking:true, vehicle:false, route:false, stop:false, phone:true,
+  },
+  night_unfamiliar: {
+    hr:130, spo2:91, hour:23, home:false, work:false, known:false, unfamiliar:true,
+    dist:15, stationary:true, walking:false, vehicle:false, route:false, stop:false, phone:true,
+  },
+  vehicle_stop: {
+    hr:125, spo2:93, hour:1, home:false, work:false, known:false, unfamiliar:true,
+    dist:25, stationary:true, walking:false, vehicle:true, route:true, stop:true, phone:true,
+  },
+  critical: {
+    hr:140, spo2:89, hour:2, home:false, work:false, known:false, unfamiliar:true,
+    dist:50, stationary:true, walking:false, vehicle:false, route:false, stop:false, phone:false,
+  },
+  travel_night: {
+    hr:135, spo2:92, hour:0, home:false, work:false, known:false, unfamiliar:true,
+    dist:35, stationary:false, walking:false, vehicle:true, route:false, stop:false, phone:true,
+  },
+};
+
+function toggleGeo(key) {
+  const btn = document.getElementById(`geo-btn-${key}`);
+  const map = {
+    home:'is_home_zone', work:'is_work_zone', known:'is_known_area', unfamiliar:'is_unfamiliar_area',
+    stationary:'is_stationary', walking:'is_walking', vehicle:'is_vehicle_like_motion',
+    route:'sudden_route_change', stop:'sudden_stop', phone:'phone_connected',
+  };
+  if (map[key]) {
+    geoState[map[key]] = !geoState[map[key]];
+    btn.classList.toggle('on');
+    // Make location toggles semi-exclusive
+    if (key === 'home' && geoState.is_home_zone) {
+      geoState.is_unfamiliar_area = false;
+      document.getElementById('geo-btn-unfamiliar').classList.remove('on');
+    }
+    if (key === 'unfamiliar' && geoState.is_unfamiliar_area) {
+      geoState.is_home_zone = false; geoState.is_work_zone = false; geoState.is_known_area = false;
+      document.getElementById('geo-btn-home').classList.remove('on');
+      document.getElementById('geo-btn-work').classList.remove('on');
+      document.getElementById('geo-btn-known').classList.remove('on');
+    }
+    updateGeoSim();
+  }
+}
+
+function applyGeoPreset(name) {
+  const p = GEO_PRESETS[name];
+  document.getElementById('geo-sl-hr').value = p.hr;
+  document.getElementById('geo-sl-spo2').value = p.spo2;
+  document.getElementById('geo-sl-hour').value = p.hour;
+  document.getElementById('geo-sl-dist').value = p.dist;
+
+  geoState.is_home_zone = p.home;
+  geoState.is_work_zone = p.work;
+  geoState.is_known_area = p.known;
+  geoState.is_unfamiliar_area = p.unfamiliar;
+  geoState.is_stationary = p.stationary;
+  geoState.is_walking = p.walking;
+  geoState.is_vehicle_like_motion = p.vehicle;
+  geoState.sudden_route_change = p.route;
+  geoState.sudden_stop = p.stop;
+  geoState.phone_connected = p.phone;
+
+  // Update button states
+  const btnMap = {
+    home: p.home, work: p.work, known: p.known, unfamiliar: p.unfamiliar,
+    stationary: p.stationary, walking: p.walking, vehicle: p.vehicle,
+    route: p.route, stop: p.stop, phone: p.phone,
+  };
+  Object.entries(btnMap).forEach(([k,v]) => {
+    const el = document.getElementById(`geo-btn-${k}`);
+    if (el) { v ? el.classList.add('on') : el.classList.remove('on'); }
+  });
+
+  document.querySelectorAll('.geo-preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  updateGeoSim();
+}
+
+function updateGeoSim() {
+  const hr   = +document.getElementById('geo-sl-hr').value;
+  const spo2 = +document.getElementById('geo-sl-spo2').value;
+  const hour = +document.getElementById('geo-sl-hour').value;
+  const dist = +document.getElementById('geo-sl-dist').value;
+
+  document.getElementById('geo-lbl-hr').textContent = `${hr} bpm`;
+  document.getElementById('geo-lbl-spo2').textContent = `${spo2}%`;
+  document.getElementById('geo-lbl-hour').textContent = `${String(hour).padStart(2,'0')}:00`;
+  document.getElementById('geo-lbl-dist').textContent = `${dist.toFixed(1)} km`;
+
+  geoState.hour_of_day = hour;
+  geoState.is_night = hour >= 20 || hour < 6;
+  geoState.distance_from_home_km = dist;
+
+  // Run physio engine first
+  const physio = evaluate(hr, spo2, 28, 36.6, 0.01, true);
+
+  // Then safety engine
+  const ctx = { ...geoState };
+  const safety = evaluateSafety(physio.state, physio.confidence, physio.triggered, ctx);
+
+  renderGeoResult(physio, safety, ctx);
+}
+
+function renderGeoResult(physio, safety, ctx) {
+  const riskColors = {
+    normal:'var(--risk-normal)', low_risk:'var(--risk-low)',
+    moderate_risk:'var(--risk-moderate)', high_risk:'var(--risk-high)', critical:'var(--risk-critical)'
+  };
+  const riskLabels = {
+    normal:'Normal', low_risk:'Low Risk', moderate_risk:'Moderate Risk',
+    high_risk:'High Risk', critical:'Critical'
+  };
+  const col = riskColors[safety.riskLevel];
+  const scorePct = Math.round(safety.riskScore * 100);
+  const circR = 26;
+  const circC = 2 * Math.PI * circR;
+  const circOffset = circC * (1 - safety.riskScore);
+
+  const stateColors = { normal:'var(--normal)', stress:'var(--stress)', distress:'var(--distress)' };
+  const physCol = stateColors[physio.state];
+
+  // Context pills
+  const pills = [];
+  if (ctx.is_home_zone) pills.push({l:'Home Zone', active:true});
+  if (ctx.is_work_zone) pills.push({l:'Work Zone', active:true});
+  if (ctx.is_known_area && !ctx.is_home_zone && !ctx.is_work_zone) pills.push({l:'Known Area', active:true});
+  if (ctx.is_unfamiliar_area) pills.push({l:'Unfamiliar', warn:true});
+  if (ctx.is_night) pills.push({l: ctx.hour_of_day >= 23 || ctx.hour_of_day < 5 ? 'Late Night' : 'Night', warn:true});
+  else pills.push({l:'Daytime', active:true});
+  if (ctx.is_walking) pills.push({l:'Walking', active:true});
+  if (ctx.is_vehicle_like_motion) pills.push({l:'Vehicle', active:false});
+  if (ctx.is_stationary) pills.push({l:'Stationary', active:true});
+  if (ctx.sudden_route_change) pills.push({l:'Route Change', warn:true});
+  if (ctx.sudden_stop) pills.push({l:'Sudden Stop', warn:true});
+  if (!ctx.phone_connected) pills.push({l:'No Phone', warn:true});
+  if (ctx.phone_connected) pills.push({l:'Phone On', active:true});
+
+  document.getElementById('geo-result').innerHTML = `
+    <div class="risk-header">
+      <div>
+        <span class="risk-badge ${safety.riskLevel}">${riskLabels[safety.riskLevel]}</span>
+        <span style="margin-left:12px;font-size:13px;color:var(--text-dim);">
+          <span class="state-badge ${physio.state}" style="font-size:11px;padding:3px 10px;">${physio.state}</span>
+        </span>
+      </div>
+      <div class="risk-score-ring">
+        <svg width="64" height="64">
+          <circle cx="32" cy="32" r="${circR}" fill="none" stroke="var(--border)" stroke-width="5"/>
+          <circle cx="32" cy="32" r="${circR}" fill="none" stroke="${col}" stroke-width="5"
+                  stroke-dasharray="${circC}" stroke-dashoffset="${circOffset}"
+                  stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:center;"/>
+        </svg>
+        <span class="risk-score-text" style="color:${col}">${scorePct}</span>
+      </div>
+    </div>
+
+    <div class="sim-alert">
+      <div class="alert-severity ${safety.alert.severity}">${safety.alert.severity} priority</div>
+      <div class="alert-title">${safety.alert.title}</div>
+      <div class="alert-message">"${safety.alert.message}"</div>
+    </div>
+
+    <div class="geo-context-pills">
+      ${pills.map(p => `<span class="ctx-pill ${p.warn ? 'warn' : p.active ? 'active' : ''}">${p.l}</span>`).join('')}
+    </div>
+
+    <div class="risk-reasoning">
+      <h4>Reasoning Chain</h4>
+      ${safety.reasoning.map(r => {
+        let dotColor = 'var(--text-muted)';
+        if (r.includes('critical') || r.includes('distress')) dotColor = 'var(--risk-critical)';
+        else if (r.includes('high') || r.includes('elevated')) dotColor = 'var(--risk-high)';
+        else if (r.includes('suppress')) dotColor = 'var(--risk-normal)';
+        else if (r.includes('signal') || r.includes('stress')) dotColor = 'var(--risk-moderate)';
+        return `<div class="risk-reason-item"><span class="risk-reason-dot" style="background:${dotColor}"></span>${r}</div>`;
+      }).join('')}
+      ${safety.reasoning.length === 0 ? '<div class="risk-reason-item" style="color:var(--text-muted)">No risk factors detected</div>' : ''}
+    </div>
+
+    <div class="risk-action">
+      <strong>Action:</strong> ${safety.action}
+    </div>
+
+    <div class="risk-layers">
+      <div class="risk-layer-card">
+        <div class="rl-label">Physio State</div>
+        <div class="rl-value" style="color:${physCol}">${physio.state.toUpperCase()}</div>
+      </div>
+      <div class="risk-layer-card">
+        <div class="rl-label">Context Risk</div>
+        <div class="rl-value" style="color:var(--geo-accent)">${(safety.contextScore * 100).toFixed(0)}%</div>
+      </div>
+      <div class="risk-layer-card">
+        <div class="rl-label">Combined</div>
+        <div class="rl-value" style="color:${col}">${scorePct}%</div>
+      </div>
+    </div>
+  `;
+}
+
 // ── Init ────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   populateScenarios();
@@ -1685,6 +2380,7 @@ document.addEventListener('DOMContentLoaded', () => {
   drawDonuts();
   initScrollAnimations();
   updateSim();
+  updateGeoSim();
 });
 </script>
 
