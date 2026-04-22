@@ -1638,7 +1638,8 @@ function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
     source = "zscore";
     if (z_hr > ZSCORE_TH.hr) { flags.hr = true; scores.hr = (z_hr - ZSCORE_TH.hr)/2 + 0.5; }
     if (z_hrv < ZSCORE_TH.hrv_rmssd) { flags.hrv_rmssd = true; scores.hrv_rmssd = Math.abs(z_hrv - ZSCORE_TH.hrv_rmssd)/2 + 0.5; }
-    if (z_spo2 < ZSCORE_TH.spo2) { flags.spo2 = true; scores.spo2 = Math.abs(z_spo2 - ZSCORE_TH.spo2)/2 + 0.5; }
+    // Clinical floor: only z-score flag SpO2 when value < 96% (approaching clinical concern)
+    if (z_spo2 < ZSCORE_TH.spo2 && spo2 < 96) { flags.spo2 = true; scores.spo2 = Math.abs(z_spo2 - ZSCORE_TH.spo2)/2 + 0.5; }
     if (z_temp > ZSCORE_TH.temp) { flags.temp = true; scores.temp = (z_temp - ZSCORE_TH.temp)/3 + 0.3; }
   }
 
@@ -1652,7 +1653,7 @@ function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
   // Clinical flags
   let clinicalFlags = [];
   if (spo2 <= 90) clinicalFlags.push(`spo2_hypoxemia (${spo2}%)`);
-  else if (spo2 <= 94) clinicalFlags.push(`spo2_clinical_concern (${spo2}%)`);
+  else if (spo2 <= 95) clinicalFlags.push(`spo2_clinical_concern (${spo2}%)`);
   if (temp >= 37.5) clinicalFlags.push(`elevated_skin_temp (${temp.toFixed(1)}°C)`);
 
   // Motion suppression

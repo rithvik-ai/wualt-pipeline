@@ -459,8 +459,13 @@ def flag_signals(pipeline_output: Dict) -> SignalFlags:
             )
 
         # SpO2: suppressed z-score → distress (INVERTED direction)
+        # Clinical floor guard: only flag z-score deviation when SpO2 is
+        # actually approaching clinical concern (< 96%).  Values 96-100%
+        # are solidly normal and should not alarm the user even if they
+        # deviate from a high personal baseline.
         z_spo2 = zscores.get("spo2", 0.0)
-        if z_spo2 < ZSCORE_THRESHOLDS["spo2"]:
+        spo2_val_for_guard = sample.get("spo2", 100.0)
+        if z_spo2 < ZSCORE_THRESHOLDS["spo2"] and spo2_val_for_guard < 96.0:
             flags.spo2 = True
             flags.spo2_score = (
                 abs(z_spo2 - ZSCORE_THRESHOLDS["spo2"]) / 2.0 + 0.5
