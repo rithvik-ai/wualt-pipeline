@@ -1285,12 +1285,12 @@ nav .nav-links a:hover { color: var(--text); }
       <div class="state-card distress">
         <div class="sc-icon">🚨</div>
         <div class="sc-title" style="color:var(--distress)">Distress</div>
-        <div class="sc-sub">Two or more primary signals deviating. Emergency signals bypass persistence.</div>
+        <div class="sc-sub">Weighted score exceeds 0.40. Emergency signals bypass persistence (with sustain gate).</div>
         <div class="sc-rule">
-          flags.count >= 2<br>
+          weighted_score &gt; 0.40<br>
           AND persistence >= 60s<br>
           <br>
-          BYPASS: SpO2 &lt; 90%<br>
+          BYPASS: SpO2 &le; 90% (10 consecutive frames)<br>
           BYPASS: HR &gt; 150 at rest
         </div>
         <div class="sc-alerts">
@@ -1339,7 +1339,7 @@ nav .nav-links a:hover { color: var(--text); }
 
       <div class="weight-card">
         <div class="wc-head">
-          <span class="wc-name">🌊 HRV (RMSSD)</span>
+          <span class="wc-name">🌊 HR Stability</span>
           <span class="wc-weight">0.25</span>
         </div>
         <div class="weight-bar"><div class="weight-bar-fill" style="width:71%;background:linear-gradient(90deg,var(--accent-g),var(--accent-b))"></div></div>
@@ -1356,9 +1356,10 @@ nav .nav-links a:hover { color: var(--text); }
           <span class="wc-weight">0.10</span>
         </div>
         <div class="weight-bar"><div class="weight-bar-fill" style="width:29%;background:linear-gradient(90deg,var(--accent-y),var(--accent-o))"></div></div>
-        <div class="wc-detail">Weak supporting signal. Skin ≠ core temperature. Elevated temp alone never triggers stress — only supports other signals.</div>
+        <div class="wc-detail">Weak supporting signal with bidirectional flagging. Skin ≠ core temperature. Abnormal temp alone never triggers stress — only supports other signals.</div>
         <div class="wc-thresholds">
           <span class="thresh-tag">z &gt; +2.5</span>
+          <span class="thresh-tag">z &lt; -1.5</span>
           <span class="thresh-tag">abs &gt; 37.8°C</span>
           <span class="thresh-tag">advisory only</span>
         </div>
@@ -1403,7 +1404,7 @@ nav .nav-links a:hover { color: var(--text); }
           <input type="range" id="sl-spo2" min="75" max="100" value="98" step="0.5" oninput="updateSim()">
         </div>
         <div class="sim-group">
-          <label>HRV (RMSSD) <span class="val" id="lbl-hrv">35 ms</span></label>
+          <label>HR Stability <span class="val" id="lbl-hrv">35 ms</span></label>
           <input type="range" id="sl-hrv" min="2" max="120" value="35" oninput="updateSim()">
         </div>
         <div class="sim-group">
@@ -1586,9 +1587,9 @@ nav .nav-links a:hover { color: var(--text); }
      ═══════════════════════════════════════════════════════════ -->
 <script>
 // ── Configuration (mirrors distress_engine.py) ──────────────
-const ZSCORE_TH = { hr: 2.0, hrv_rmssd: -1.5, spo2: -2.0, temp: 2.5 };
-const ABS_TH    = { hr_high:120, hr_very_high:150, spo2_low:95, spo2_very_low:90, temp_high:37.8 };
-const WEIGHTS   = { hr:0.35, hrv_rmssd:0.25, spo2:0.30, temp:0.10 };
+const ZSCORE_TH = { hr: 2.0, hr_stability_score: -1.5, spo2: -2.0, temp: 2.5, temp_low: -1.5 };
+const ABS_TH    = { hr_high:120, hr_very_high:150, spo2_low:94, spo2_very_low:90, temp_high:37.8 };
+const WEIGHTS   = { hr:0.35, hr_stability_score:0.25, spo2:0.30, temp:0.10 };
 const MOTION_TH = { still:0.05, walking:0.25, active:0.50 };
 
 // Baseline profile for z-score computation in the simulator
@@ -1629,18 +1630,20 @@ function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
   const z_temp = computeZscore(temp, BASELINE.temp, BASELINE.temp_std);
 
   // Flags
-  let flags = { hr:false, spo2:false, hrv_rmssd:false, temp:false };
-  let scores = { hr:0, spo2:0, hrv_rmssd:0, temp:0 };
+  let flags = { hr:false, spo2:false, hr_stability_score:false, temp:false };
+  let scores = { hr:0, spo2:0, hr_stability_score:0, temp:0 };
   let source = "none";
 
   // Z-score flags
   if (baselineReady) {
     source = "zscore";
     if (z_hr > ZSCORE_TH.hr) { flags.hr = true; scores.hr = (z_hr - ZSCORE_TH.hr)/2 + 0.5; }
-    if (z_hrv < ZSCORE_TH.hrv_rmssd) { flags.hrv_rmssd = true; scores.hrv_rmssd = Math.abs(z_hrv - ZSCORE_TH.hrv_rmssd)/2 + 0.5; }
-    // Clinical floor: only z-score flag SpO2 when value < 96% (approaching clinical concern)
-    if (z_spo2 < ZSCORE_TH.spo2 && spo2 < 96) { flags.spo2 = true; scores.spo2 = Math.abs(z_spo2 - ZSCORE_TH.spo2)/2 + 0.5; }
+    if (z_hrv < ZSCORE_TH.hr_stability_score) { flags.hr_stability_score = true; scores.hr_stability_score = Math.abs(z_hrv - ZSCORE_TH.hr_stability_score)/2 + 0.5; }
+    // Clinical floor: only z-score flag SpO2 when value < 94% (approaching clinical concern)
+    if (z_spo2 < ZSCORE_TH.spo2 && spo2 < 94) { flags.spo2 = true; scores.spo2 = Math.abs(z_spo2 - ZSCORE_TH.spo2)/2 + 0.5; }
     if (z_temp > ZSCORE_TH.temp) { flags.temp = true; scores.temp = (z_temp - ZSCORE_TH.temp)/3 + 0.3; }
+    // Bidirectional temp flagging: also flag abnormally low skin temp
+    if (z_temp < ZSCORE_TH.temp_low) { flags.temp = true; scores.temp = Math.max(scores.temp, Math.abs(z_temp - ZSCORE_TH.temp_low)/3 + 0.3); }
   }
 
   // Absolute thresholds
@@ -1653,7 +1656,7 @@ function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
   // Clinical flags
   let clinicalFlags = [];
   if (spo2 <= 90) clinicalFlags.push(`spo2_hypoxemia (${spo2}%)`);
-  else if (spo2 <= 95) clinicalFlags.push(`spo2_clinical_concern (${spo2}%)`);
+  else if (spo2 <= 94) clinicalFlags.push(`spo2_clinical_concern (${spo2}%)`);
   if (temp >= 37.5) clinicalFlags.push(`elevated_skin_temp (${temp.toFixed(1)}°C)`);
 
   // Motion suppression
@@ -1663,19 +1666,27 @@ function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
   }
 
   // Count
-  const count = [flags.hr, flags.spo2, flags.hrv_rmssd, flags.temp].filter(Boolean).length;
+  const count = [flags.hr, flags.spo2, flags.hr_stability_score, flags.temp].filter(Boolean).length;
   const triggered = [];
   if (flags.hr) triggered.push("hr");
-  if (flags.hrv_rmssd) triggered.push("hrv");
+  if (flags.hr_stability_score) triggered.push("hrv");
   if (flags.spo2) triggered.push("spo2");
   if (flags.temp) triggered.push("temp");
 
-  // State
-  let state = "normal";
-  if (count >= 2) state = "distress";
-  else if (count === 1 && !(flags.temp && count === 1)) state = "stress";
+  // Weighted score for state determination
+  let weighted_score = 0;
+  if (flags.hr) weighted_score += WEIGHTS.hr * Math.min(1, scores.hr);
+  if (flags.hr_stability_score) weighted_score += WEIGHTS.hr_stability_score * Math.min(1, scores.hr_stability_score);
+  if (flags.spo2) weighted_score += WEIGHTS.spo2 * Math.min(1, scores.spo2);
+  if (flags.temp) weighted_score += WEIGHTS.temp * Math.min(1, scores.temp);
 
-  // Emergency bypass
+  // State — weighted-score-based instead of count-based
+  let state = "normal";
+  if (weighted_score > 0.40) state = "distress";
+  else if (count >= 1 && !(flags.temp && count === 1)) state = "stress";
+
+  // Emergency bypass — SpO2 <= 90% requires 10 consecutive frames (sustain gate)
+  // In the simulator we approximate this by still showing distress for SpO2 <= 90%
   if (spo2 <= ABS_TH.spo2_very_low) state = "distress";
   if (hr >= ABS_TH.hr_very_high && (motion === "still" || motion === "walking")) {
     if (state === "normal") state = "stress";
@@ -1688,7 +1699,7 @@ function evaluate(hr, spo2, hrv, temp, dyn_acc, baselineReady) {
   } else {
     let wscore = 0;
     if (flags.hr) wscore += WEIGHTS.hr * Math.min(1, scores.hr);
-    if (flags.hrv_rmssd) wscore += WEIGHTS.hrv_rmssd * Math.min(1, scores.hrv_rmssd);
+    if (flags.hr_stability_score) wscore += WEIGHTS.hr_stability_score * Math.min(1, scores.hr_stability_score);
     if (flags.spo2) wscore += WEIGHTS.spo2 * Math.min(1, scores.spo2);
     if (flags.temp) wscore += WEIGHTS.temp * Math.min(1, scores.temp);
     confidence = wscore * 0.5 + 0.3 * 0.3 + 0.2 * 1.0;
@@ -1780,7 +1791,7 @@ function renderResult(r) {
   const signalData = [
     { key:'hr',   label:'HR',   val:r.zscores.hr,   flagged:r.flags.hr,   score:r.scores.hr },
     { key:'spo2', label:'SpO2', val:r.zscores.spo2, flagged:r.flags.spo2, score:r.scores.spo2 },
-    { key:'hrv',  label:'HRV',  val:r.zscores.hrv,  flagged:r.flags.hrv_rmssd, score:r.scores.hrv_rmssd },
+    { key:'hrv',  label:'HR Stability',  val:r.zscores.hrv,  flagged:r.flags.hr_stability_score, score:r.scores.hr_stability_score },
     { key:'temp', label:'Temp', val:r.zscores.temp, flagged:r.flags.temp, score:r.scores.temp },
   ];
 

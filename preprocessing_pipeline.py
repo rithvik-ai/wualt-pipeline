@@ -42,7 +42,7 @@ OUTPUT (ready for the rule engine)
         "timestamp":  int,            # seconds since epoch
         "sequence":   int,            # copied from device
         "hr":         float | None,   # bpm, despiked + EMA-smoothed
-        "hrv_rmssd":  float | None,   # ms, HR-derived proxy (flagged in SQI)
+        "hr_stability_score":  float | None,   # ms, HR-stability proxy (NOT clinical HRV)
         "temp":       float | None,   # °C skin
         "spo2":       float | None,   # %
         "acc_mag":    float,          # g, sqrt(ax² + ay² + az²)
@@ -145,7 +145,7 @@ MAX_JUMP = {
 }
 
 # EMA smoothing factors. Higher alpha = more responsive, less smoothing.
-EMA_ALPHA = {"hr": 0.5, "spo2": 0.4, "temp": 0.3}
+EMA_ALPHA = {"hr": 0.7, "spo2": 0.3, "temp": 0.05}
 
 # SQI weights for the overall quality score.
 # PPG quality is gathered from adc_raw and feeds into the hr/spo2 scores.
@@ -196,7 +196,7 @@ class ProcessedFrame:
     sequence:  int
 
     hr:            Optional[float]
-    hrv_rmssd:     Optional[float]
+    hr_stability_score:     Optional[float]
     temp:          Optional[float]    # skin temp AFTER thermal compensation
     temp_raw:      Optional[float]    # skin temp BEFORE compensation (debug)
     spo2:          Optional[float]
@@ -233,7 +233,7 @@ class ProcessedFrame:
             "timestamp":    self.timestamp,
             "sequence":     self.sequence,
             "hr":           self.hr,
-            "hrv_rmssd":    self.hrv_rmssd,
+            "hr_stability_score":    self.hr_stability_score,
             "temp":         self.temp,
             "temp_raw":     self.temp_raw,
             "spo2":         self.spo2,
@@ -358,8 +358,8 @@ class _RRBuffer:
     Reference: Task Force of ESC / NASPE, 1996, Circulation 93:1043-1065.
     Ultra-short window validity: Esco & Flatt, 2014, J Sports Sci Med.
 
-    The output field is kept as `hrv_rmssd` for pipeline backward
-    compatibility, but it should be interpreted as an "HR stability score".
+    The output field is named `hr_stability_score` to clearly indicate this
+    is NOT a clinical RMSSD / HRV measurement.
     SQI.hrv is capped at 0.7 to reflect this honestly.
     """
 
@@ -373,7 +373,9 @@ class _RRBuffer:
         if len(self.rr) < 4:
             return None
         diffs = [self.rr[i + 1] - self.rr[i] for i in range(len(self.rr) - 1)]
-        return math.sqrt(sum(d * d for d in diffs) / len(diffs))
+        if len(diffs) < 2:
+            return None
+        return math.sqrt(sum(d * d for d in diffs) / (len(diffs) - 1))
 
 
 class _AccelJitter:
@@ -394,7 +396,7 @@ class _AccelJitter:
             return 0.95
         n = len(self.buf)
         mean = sum(self.buf) / n
-        var = sum((x - mean) ** 2 for x in self.buf) / n
+        var = sum((x - mean) ** 2 for x in self.buf) / (n - 1)
         return max(0.0, min(1.0, 1.0 - min(var * 80.0, 1.0)))
 
 
@@ -459,7 +461,7 @@ class _PPGQuality:
 
         n = len(self.buf)
         mean = sum(self.buf) / n
-        var  = sum((x - mean) ** 2 for x in self.buf) / n
+        var  = sum((x - mean) ** 2 for x in self.buf) / (n - 1)
         sigma = math.sqrt(var)
 
         if sigma < ADC_MIN_VARIANCE:
@@ -591,13 +593,18 @@ class Preprocessor:
             v["temp"] = v["temp"] - bias
         v["thermal_bias"] = bias
 
+        # Save raw (despiked but unsmoothed) HR for RR interval computation.
+        raw_hr = v["hr"]
+
         # Light smoothing on slow-varying signals.
         v["hr"]   = self.ema_hr.step(v["hr"])
         v["spo2"] = self.ema_spo2.step(v["spo2"])
         v["temp"] = self.ema_temp.step(v["temp"])
 
-        # HRV proxy derived from the (now smoothed) HR stream.
-        v["hrv_rmssd"] = self.rr_buffer.update(v["hr"])
+        # HR stability score derived from the RAW (despiked, unsmoothed) HR
+        # stream. Using unsmoothed HR preserves the inter-beat variability
+        # that EMA would attenuate, giving a more honest stability metric.
+        v["hr_stability_score"] = self.rr_buffer.update(raw_hr)
         return v
 
     # ---------- Stage 4: signal quality check ----------
@@ -660,7 +667,7 @@ class Preprocessor:
         # Still below the 1.0 ceiling to flag that this is NOT a clinical
         # RMSSD measurement.  (Esco & Flatt, 2014, J Sports Sci Med.)
         sq.hrv = min(0.7, sq.hr)
-        if v["hrv_rmssd"] is None:
+        if v["hr_stability_score"] is None:
             sq.hrv = 0.0
 
         # --- Temperature (uses compensated value) ---
@@ -709,9 +716,16 @@ class Preprocessor:
             sq.spo2 = 0.2
 
         # --- Accelerometer SQI from dynamic motion (gravity removed) ---
+        # Motion does NOT reject the frame outright — instead it degrades
+        # confidence in PPG-derived signals (HR, SpO2). This keeps motion
+        # frames in the pipeline (important for fall detection and activity
+        # tracking) while honestly reporting reduced PPG reliability.
         sq.acc = self.jitter.update(v["dyn_acc_mag"])
         if sq.acc < 0.7:
-            reasons.append(f"low_acc_sqi ({sq.acc:.2f})")
+            # Downgrade HR and SpO2 quality by motion penalty instead of
+            # rejecting the frame. The penalty is proportional to acc SQI.
+            sq.hr   *= sq.acc
+            sq.spo2 *= sq.acc
 
         # --- Hard gate on HR quality ---
         if sq.hr < 0.7:
@@ -754,7 +768,7 @@ class Preprocessor:
             timestamp      = int(time.time()),
             sequence       = v["sequence"],
             hr             = v["hr"],
-            hrv_rmssd      = v["hrv_rmssd"],
+            hr_stability_score      = v["hr_stability_score"],
             temp           = v["temp"],
             temp_raw       = v.get("temp_raw"),
             spo2           = v["spo2"],
@@ -814,12 +828,12 @@ class PersonalBaseline:
         not during an active critical event (caller's responsibility).
     """
 
-    def __init__(self, warmup_size: int = 60, window_size: int = 300):
+    def __init__(self, warmup_size: int = 60, window_size: int = 1800):
         self.warmup_size = warmup_size
         self.window_size = window_size
         self.buffers: Dict[str, Deque[float]] = {
             "hr":        deque(maxlen=window_size),
-            "hrv_rmssd": deque(maxlen=window_size),
+            "hr_stability_score": deque(maxlen=window_size),
             "temp":      deque(maxlen=window_size),
             "spo2":      deque(maxlen=window_size),
             "acc_mag":   deque(maxlen=window_size),
@@ -829,10 +843,45 @@ class PersonalBaseline:
         return len(self.buffers["hr"]) >= self.warmup_size
 
     def update(self, sample: Dict) -> None:
+        """Unconditional update — kept for backward compatibility."""
         for key in self.buffers:
             val = sample.get(key)
             if val is not None:
                 self.buffers[key].append(float(val))
+
+    def gated_update(self, sample: Dict, engine_state: Optional[str]) -> None:
+        """
+        Preferred entry point. Only learns from 'normal' engine states so
+        that distress / alarm events don't pollute the personal baseline.
+
+        During warmup (engine_state is None — engine not yet running), we
+        apply simple outlier rejection: reject any value more than 3 SD
+        from the running mean. This prevents early spikes from biasing
+        the baseline before the engine has enough data to classify state.
+        """
+        for key in self.buffers:
+            val = sample.get(key)
+            if val is None:
+                continue
+            val = float(val)
+
+            if engine_state is not None:
+                # Engine is running — only update on normal state.
+                if engine_state == "normal":
+                    self.buffers[key].append(val)
+            else:
+                # Warmup: outlier rejection (|val - mean| > 3 * SD).
+                buf = self.buffers[key]
+                if len(buf) < 2:
+                    # Not enough data for stats — accept unconditionally.
+                    buf.append(val)
+                else:
+                    mean = sum(buf) / len(buf)
+                    var = sum((x - mean) ** 2 for x in buf) / (len(buf) - 1)
+                    sd = math.sqrt(var) if var > 1e-9 else 1.0
+                    if abs(val - mean) <= 3.0 * sd:
+                        buf.append(val)
+                    # else: outlier rejected during warmup
 
     def _stats(self, key: str) -> Tuple[float, float]:
         buf = self.buffers[key]
@@ -891,7 +940,7 @@ class RollingWindow:
     def features(self) -> Dict[str, float]:
         """Mean + variance + min/max per signal across the window."""
         feats: Dict[str, float] = {"window_n": len(self.samples)}
-        keys = ("hr", "hrv_rmssd", "temp", "spo2", "acc_mag")
+        keys = ("hr", "hr_stability_score", "temp", "spo2", "acc_mag")
         for k in keys:
             vals = [s[k] for s in self.samples if s.get(k) is not None]
             if not vals:
@@ -941,15 +990,24 @@ class AnomalyInputBuilder:
         self.pre = Preprocessor()
         self.baseline = PersonalBaseline(warmup_size=baseline_warmup)
         self.window = RollingWindow(window_seconds=window_seconds)
+        self._engine_state: Optional[str] = None
+
+    def set_engine_state(self, state: str) -> None:
+        """
+        Receive feedback from the distress engine so the baseline can
+        gate its updates. Call this after each engine evaluation with
+        the current engine state (e.g. 'normal', 'elevated', 'distress').
+        """
+        self._engine_state = state
 
     def step(self, raw: Dict) -> Dict:
         pf = self.pre.process(raw)
         sample = pf.to_engine_sample()
 
-        # Only learn from accepted frames so bad data doesn't poison the
-        # personal baseline.
+        # Only learn from accepted frames, and gate on engine state so
+        # distress events don't pollute the personal baseline.
         if pf.accepted:
-            self.baseline.update(sample)
+            self.baseline.gated_update(sample, self._engine_state)
             self.window.add(sample)
 
         return {

@@ -505,7 +505,7 @@ def generate_frame(
     hr = round(_clamp(hr_raw, 30, 220), 1)
 
     hrv_raw = profile.resting_hrv + ramp * scenario.hrv_delta[0] + random.gauss(0, scenario.hrv_delta[1])
-    hrv_rmssd = round(_clamp(hrv_raw, 2, 200), 1)
+    hr_stability_score = round(_clamp(hrv_raw, 2, 200), 1)
 
     spo2_raw = profile.resting_spo2 + ramp * scenario.spo2_delta[0] + random.gauss(0, scenario.spo2_delta[1])
     spo2 = round(_clamp(spo2_raw, 70, 100), 1)
@@ -520,7 +520,7 @@ def generate_frame(
 
     # ── Z-scores (against this user's baseline) ──────────────────
     z_hr      = round(_compute_zscore(hr, profile.resting_hr, profile.hr_std), 2)
-    z_hrv     = round(_compute_zscore(hrv_rmssd, profile.resting_hrv, profile.hrv_std), 2)
+    z_hrv     = round(_compute_zscore(hr_stability_score, profile.resting_hrv, profile.hrv_std), 2)
     z_spo2    = round(_compute_zscore(spo2, profile.resting_spo2, profile.spo2_std), 2)
     z_temp    = round(_compute_zscore(temp, profile.resting_temp, profile.temp_std), 2)
 
@@ -565,7 +565,7 @@ def generate_frame(
         "timestamp": timestamp,
         "sequence": sequence,
         "hr": hr,
-        "hrv_rmssd": hrv_rmssd,
+        "hr_stability_score": hr_stability_score,
         "temp": temp,
         "temp_raw": round(temp + random.gauss(0, 0.05), 2),
         "spo2": spo2,
@@ -594,10 +594,10 @@ def generate_frame(
         "hr_var": round(profile.hr_std ** 2, 2),
         "hr_min": round(hr - random.uniform(2, 6), 1),
         "hr_max": round(hr + random.uniform(2, 6), 1),
-        "hrv_rmssd_mean": round(profile.resting_hrv + ramp * scenario.hrv_delta[0] * 0.8, 1),
-        "hrv_rmssd_var": round(profile.hrv_std ** 2, 2),
-        "hrv_rmssd_min": round(hrv_rmssd - random.uniform(2, 5), 1),
-        "hrv_rmssd_max": round(hrv_rmssd + random.uniform(2, 5), 1),
+        "hr_stability_score_mean": round(profile.resting_hrv + ramp * scenario.hrv_delta[0] * 0.8, 1),
+        "hr_stability_score_var": round(profile.hrv_std ** 2, 2),
+        "hr_stability_score_min": round(hr_stability_score - random.uniform(2, 5), 1),
+        "hr_stability_score_max": round(hr_stability_score + random.uniform(2, 5), 1),
         "temp_mean": round(profile.resting_temp + ramp * scenario.temp_delta[0] * 0.8, 2),
         "temp_var": round(profile.temp_std ** 2, 4),
         "temp_min": round(temp - random.uniform(0.05, 0.15), 2),
@@ -616,7 +616,7 @@ def generate_frame(
         "sample": sample,
         "zscores": {
             "hr": z_hr if baseline_ready else 0.0,
-            "hrv_rmssd": z_hrv if baseline_ready else 0.0,
+            "hr_stability_score": z_hrv if baseline_ready else 0.0,
             "spo2": z_spo2 if baseline_ready else 0.0,
             "temp": z_temp if baseline_ready else 0.0,
             "acc_mag": 0.0,
@@ -711,7 +711,7 @@ def generate_dataset(
 
                     # Vitals
                     "hr": s["hr"],
-                    "hrv_rmssd": s["hrv_rmssd"],
+                    "hr_stability_score": s["hr_stability_score"],
                     "spo2": s["spo2"],
                     "temp": s["temp"],
                     "temp_raw": s["temp_raw"],
@@ -738,7 +738,7 @@ def generate_dataset(
 
                     # Z-scores
                     "z_hr": z["hr"],
-                    "z_hrv_rmssd": z["hrv_rmssd"],
+                    "z_hr_stability_score": z["hr_stability_score"],
                     "z_spo2": z["spo2"],
                     "z_temp": z["temp"],
 
@@ -755,8 +755,8 @@ def generate_dataset(
                     "window_hr_var": w["hr_var"],
                     "window_spo2_mean": w["spo2_mean"],
                     "window_spo2_var": w["spo2_var"],
-                    "window_hrv_mean": w["hrv_rmssd_mean"],
-                    "window_hrv_var": w["hrv_rmssd_var"],
+                    "window_hrv_mean": w["hr_stability_score_mean"],
+                    "window_hrv_var": w["hr_stability_score_var"],
                     "window_temp_mean": w["temp_mean"],
                     "window_temp_var": w["temp_var"],
 
@@ -920,7 +920,7 @@ def _row_to_pipeline_output(row: Dict) -> Dict:
             "timestamp": row["frame_id"],
             "sequence": row["frame_id"],
             "hr": row["hr"],
-            "hrv_rmssd": row["hrv_rmssd"],
+            "hr_stability_score": row["hr_stability_score"],
             "temp": row["temp"],
             "temp_raw": row["temp_raw"],
             "spo2": row["spo2"],
@@ -950,7 +950,7 @@ def _row_to_pipeline_output(row: Dict) -> Dict:
         },
         "zscores": {
             "hr": row["z_hr"],
-            "hrv_rmssd": row["z_hrv_rmssd"],
+            "hr_stability_score": row["z_hr_stability_score"],
             "spo2": row["z_spo2"],
             "temp": row["z_temp"],
             "acc_mag": 0.0,
@@ -960,8 +960,8 @@ def _row_to_pipeline_output(row: Dict) -> Dict:
             "window_n": row["window_n"],
             "hr_mean": row["window_hr_mean"],
             "hr_var": row["window_hr_var"],
-            "hrv_rmssd_mean": row["window_hrv_mean"],
-            "hrv_rmssd_var": row["window_hrv_var"],
+            "hr_stability_score_mean": row["window_hrv_mean"],
+            "hr_stability_score_var": row["window_hrv_var"],
             "temp_mean": row["window_temp_mean"],
             "temp_var": row["window_temp_var"],
             "spo2_mean": row["window_spo2_mean"],
@@ -972,8 +972,8 @@ def _row_to_pipeline_output(row: Dict) -> Dict:
             "acc_mag_max": row["acc_mag"] + 0.02,
             "hr_min": row["hr"] - 3,
             "hr_max": row["hr"] + 3,
-            "hrv_rmssd_min": row["hrv_rmssd"] - 3,
-            "hrv_rmssd_max": row["hrv_rmssd"] + 3,
+            "hr_stability_score_min": row["hr_stability_score"] - 3,
+            "hr_stability_score_max": row["hr_stability_score"] + 3,
             "temp_min": row["temp"] - 0.1,
             "temp_max": row["temp"] + 0.1,
             "spo2_min": row["spo2"] - 0.5,

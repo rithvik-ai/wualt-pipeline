@@ -161,10 +161,11 @@ from typing import Deque, Dict, List, Optional, Tuple
 # --- Z-score thresholds for flagging ---
 # Direction matters: HR ↑ = stress, HRV ↓ = stress, SpO2 ↓ = stress
 ZSCORE_THRESHOLDS = {
-    "hr":        2.0,    # z > +2.0 → flag (elevated)
-    "hrv_rmssd": -1.5,   # z < -1.5 → flag (suppressed — note: inverted)
-    "spo2":      -2.0,   # z < -2.0 → flag (desaturation)
-    "temp":      2.5,    # z > +2.5 → flag (weak signal, high threshold)
+    "hr":                 2.0,    # z > +2.0 → flag (elevated)
+    "hr_stability_score": -1.5,   # z < -1.5 → flag (suppressed — note: inverted)
+    "spo2":               -2.0,   # z < -2.0 → flag (desaturation)
+    "temp":               2.5,    # z > +2.5 → flag (weak signal, high threshold)
+    "temp_low":           -1.5,   # z < -1.5 → flag (vasoconstriction / distress)
 }
 
 # --- Absolute thresholds (always active, even during cold start) ---
@@ -172,7 +173,7 @@ ZSCORE_THRESHOLDS = {
 ABSOLUTE_THRESHOLDS = {
     "hr_high":      120.0,   # bpm — clearly elevated for a resting person
     "hr_very_high": 150.0,   # bpm — concerning even during exercise
-    "spo2_low":      95.0,   # % — below normal range (normal = 95–100%)
+    "spo2_low":      94.0,   # % — BTS/WHO clinical-concern boundary (matches CLINICAL_SPO2_CONCERN)
     "spo2_very_low": 90.0,   # % — hypoxemia / medical emergency
     "temp_high":     37.8,   # °C skin — possible fever (skin is 4-7°C below core)
 }
@@ -180,10 +181,10 @@ ABSOLUTE_THRESHOLDS = {
 # --- Signal weights for confidence scoring ---
 # Temperature is deliberately weak — it's a supporting signal, not primary.
 SIGNAL_WEIGHTS = {
-    "hr":        0.35,
-    "hrv_rmssd": 0.25,
-    "spo2":      0.30,
-    "temp":      0.10,
+    "hr":                 0.35,
+    "hr_stability_score": 0.25,
+    "spo2":               0.30,
+    "temp":               0.10,
 }
 
 # --- Motion detection ---
@@ -386,42 +387,53 @@ def classify_motion(sample: Dict) -> str:
 @dataclass
 class SignalFlags:
     """Per-signal boolean flags + the score that triggered them."""
-    hr:        bool = False
-    hrv_rmssd: bool = False
-    spo2:      bool = False
-    temp:      bool = False
+    hr:                 bool = False
+    hr_stability_score: bool = False
+    spo2:               bool = False
+    temp:               bool = False
+    temp_drop:          bool = False   # vasoconstriction / distress (stronger than temp elevation)
 
-    hr_score:        float = 0.0
-    hrv_rmssd_score: float = 0.0
-    spo2_score:      float = 0.0
-    temp_score:      float = 0.0
+    hr_score:                 float = 0.0
+    hr_stability_score_score: float = 0.0
+    spo2_score:               float = 0.0
+    temp_score:               float = 0.0
+    temp_drop_score:          float = 0.0
 
     source: str = "none"   # "zscore", "absolute", "clinical_flag"
 
     @property
     def count(self) -> int:
-        return sum([self.hr, self.hrv_rmssd, self.spo2, self.temp])
+        return sum([self.hr, self.hr_stability_score, self.spo2,
+                    self.temp, self.temp_drop])
 
     @property
     def triggered(self) -> List[str]:
         out = []
-        if self.hr:        out.append("hr")
-        if self.hrv_rmssd: out.append("hrv_rmssd")
-        if self.spo2:      out.append("spo2")
-        if self.temp:      out.append("temp")
+        if self.hr:                 out.append("hr")
+        if self.hr_stability_score: out.append("hr_stability_score")
+        if self.spo2:               out.append("spo2")
+        if self.temp:               out.append("temp")
+        if self.temp_drop:          out.append("temp_drop")
         return out
 
     def weighted_score(self) -> float:
-        """Weighted confidence score from triggered signals."""
+        """Weighted confidence score from triggered signals.
+
+        temp_drop contributes with 1.5x the normal temp weight
+        (vasoconstriction is a stronger distress signal than fever).
+        """
         total = 0.0
         if self.hr:
             total += SIGNAL_WEIGHTS["hr"] * min(1.0, self.hr_score)
-        if self.hrv_rmssd:
-            total += SIGNAL_WEIGHTS["hrv_rmssd"] * min(1.0, self.hrv_rmssd_score)
+        if self.hr_stability_score:
+            total += SIGNAL_WEIGHTS["hr_stability_score"] * min(1.0, self.hr_stability_score_score)
         if self.spo2:
             total += SIGNAL_WEIGHTS["spo2"] * min(1.0, self.spo2_score)
         if self.temp:
             total += SIGNAL_WEIGHTS["temp"] * min(1.0, self.temp_score)
+        if self.temp_drop:
+            # temp_drop is a stronger distress signal — 1.5x temp weight
+            total += SIGNAL_WEIGHTS["temp"] * 1.5 * min(1.0, self.temp_drop_score)
         return total
 
 
@@ -450,12 +462,12 @@ def flag_signals(pipeline_output: Dict) -> SignalFlags:
             flags.hr = True
             flags.hr_score = (z_hr - ZSCORE_THRESHOLDS["hr"]) / 2.0 + 0.5
 
-        # HRV: suppressed z-score → stress (INVERTED direction)
-        z_hrv = zscores.get("hrv_rmssd", 0.0)
-        if z_hrv < ZSCORE_THRESHOLDS["hrv_rmssd"]:
-            flags.hrv_rmssd = True
-            flags.hrv_rmssd_score = (
-                abs(z_hrv - ZSCORE_THRESHOLDS["hrv_rmssd"]) / 2.0 + 0.5
+        # HR stability: suppressed z-score → stress (INVERTED direction)
+        z_hrv = zscores.get("hr_stability_score", 0.0)
+        if z_hrv < ZSCORE_THRESHOLDS["hr_stability_score"]:
+            flags.hr_stability_score = True
+            flags.hr_stability_score_score = (
+                abs(z_hrv - ZSCORE_THRESHOLDS["hr_stability_score"]) / 2.0 + 0.5
             )
 
         # SpO2: suppressed z-score → distress (INVERTED direction)
@@ -476,6 +488,13 @@ def flag_signals(pipeline_output: Dict) -> SignalFlags:
         if z_temp > ZSCORE_THRESHOLDS["temp"]:
             flags.temp = True
             flags.temp_score = (z_temp - ZSCORE_THRESHOLDS["temp"]) / 3.0 + 0.3
+
+        # Temp drop: vasoconstriction / distress (stronger than elevation)
+        if z_temp < ZSCORE_THRESHOLDS["temp_low"]:
+            flags.temp_drop = True
+            flags.temp_drop_score = (
+                abs(z_temp - ZSCORE_THRESHOLDS["temp_low"]) / 2.0 + 0.5
+            )
 
     # --- Absolute threshold flags (always active) ---
     hr = sample.get("hr")
@@ -507,15 +526,14 @@ def flag_signals(pipeline_output: Dict) -> SignalFlags:
             flags.temp_score = max(flags.temp_score, 0.3)
 
     # --- Clinical flags from preprocessing pipeline ---
+    # Note: spo2_clinical_concern is no longer handled here because
+    # it is redundant with the absolute threshold check (spo2_low = 94.0
+    # matches CLINICAL_SPO2_CONCERN in the preprocessing pipeline).
     clinical = sample.get("clinical_flags", [])
     for cf in clinical:
         if "spo2_hypoxemia" in cf and not flags.spo2:
             flags.spo2 = True
             flags.spo2_score = max(flags.spo2_score, 0.85)
-            flags.source = "clinical_flag"
-        elif "spo2_clinical_concern" in cf and not flags.spo2:
-            flags.spo2 = True
-            flags.spo2_score = max(flags.spo2_score, 0.55)
             flags.source = "clinical_flag"
         elif "elevated_skin_temp" in cf and not flags.temp:
             flags.temp = True
@@ -823,7 +841,7 @@ def select_alert(
     # --- Normal ---
     if state == "normal":
         # Check if temp alone is elevated (advisory, not stress)
-        if flags.temp and flags.count == 1:
+        if flags.temp and flags.count == 1 and not flags.temp_drop:
             return _pick_alert(ALERTS_TEMP_ELEVATED)
         return _pick_alert(ALERTS_NORMAL)
 
@@ -882,6 +900,7 @@ class DistressEngine:
         self._cycle = 0   # for alert message rotation
         self._last_state = "normal"
         self._state_history: Deque[str] = deque(maxlen=120)  # ~2 min at 1 Hz
+        self._spo2_emergency_count: int = 0  # sustain gate for SpO2 <= 90% bypass
 
     def evaluate(self, pipeline_output: Dict) -> Dict:
         """Evaluate one preprocessed frame and return a detection result."""
@@ -957,14 +976,17 @@ class DistressEngine:
                 flags.hr_score = 0.0
 
         # ------------------------------------------------------------------
-        # Step 4: Raw state determination
+        # Step 4: Raw state determination (weighted-score gating)
         # ------------------------------------------------------------------
+        # Use weighted_score instead of simple flag count to account for
+        # signal importance (HR=0.35, SpO2=0.30, HRV=0.25, Temp=0.10).
+        w_score = flags.weighted_score()
         raw_state = "normal"
-        if flags.count >= 2:
+        if w_score > 0.40:
             raw_state = "distress"
-        elif flags.count == 1:
-            # Temp alone is a "supporting" signal — not enough for stress
-            if flags.temp and flags.count == 1:
+        elif w_score > 0.15:
+            # Temp elevation alone is a "supporting" signal — not enough for stress
+            if flags.temp and flags.count == 1 and not flags.temp_drop:
                 raw_state = "normal"
             else:
                 raw_state = "stress"
@@ -1005,12 +1027,17 @@ class DistressEngine:
                 persistence_s = stress_duration
 
         # Exception: absolute emergency signals bypass persistence
-        # SpO2 < 90% or HR > 150 → immediate escalation
+        # SpO2 <= 90% for 10 consecutive frames → emergency escalation
+        # HR > 150 → immediate escalation (non-exercise)
         spo2_val = sample.get("spo2")
         hr_val   = sample.get("hr")
         if spo2_val is not None and spo2_val <= ABSOLUTE_THRESHOLDS["spo2_very_low"]:
-            final_state = "distress"
-            persistence_s = max(persistence_s, 1.0)
+            self._spo2_emergency_count += 1
+            if self._spo2_emergency_count >= 10:
+                final_state = "distress"
+                persistence_s = max(persistence_s, 1.0)
+        else:
+            self._spo2_emergency_count = 0
         if hr_val is not None and hr_val >= ABSOLUTE_THRESHOLDS["hr_very_high"]:
             if motion_state not in ("active", "exercise"):
                 final_state = max(final_state, "stress", key=_state_rank)
@@ -1126,16 +1153,18 @@ class DistressEngine:
             },
             "debug": {
                 "flags": {
-                    "hr":        flags.hr,
-                    "hrv_rmssd": flags.hrv_rmssd,
-                    "spo2":      flags.spo2,
-                    "temp":      flags.temp,
+                    "hr":                 flags.hr,
+                    "hr_stability_score": flags.hr_stability_score,
+                    "spo2":               flags.spo2,
+                    "temp":               flags.temp,
+                    "temp_drop":          flags.temp_drop,
                 },
                 "scores": {
-                    "hr":        round(flags.hr_score, 3),
-                    "hrv_rmssd": round(flags.hrv_rmssd_score, 3),
-                    "spo2":      round(flags.spo2_score, 3),
-                    "temp":      round(flags.temp_score, 3),
+                    "hr":                 round(flags.hr_score, 3),
+                    "hr_stability_score": round(flags.hr_stability_score_score, 3),
+                    "spo2":               round(flags.spo2_score, 3),
+                    "temp":               round(flags.temp_score, 3),
+                    "temp_drop":          round(flags.temp_drop_score, 3),
                 },
                 "persistence_s": round(persistence_s, 1),
                 "motion_state":  motion_state,
@@ -2059,7 +2088,7 @@ if __name__ == "__main__":
         return {
             "sample": {
                 "timestamp": _ts, "sequence": _ts,
-                "hr": hr, "hrv_rmssd": 28.0, "temp": temp, "temp_raw": temp,
+                "hr": hr, "hr_stability_score": 28.0, "temp": temp, "temp_raw": temp,
                 "spo2": spo2, "acc_mag": 0.98, "dyn_acc_mag": dyn_acc,
                 "acc_x": 0.02, "acc_y": -0.01, "acc_z": 0.98,
                 "finger_on": finger_on, "charging": charging,
@@ -2075,15 +2104,15 @@ if __name__ == "__main__":
                 "clinical_flags": clinical_flags or [],
             },
             "zscores": {
-                "hr": z_hr, "hrv_rmssd": z_hrv,
+                "hr": z_hr, "hr_stability_score": z_hrv,
                 "temp": z_temp, "spo2": z_spo2, "acc_mag": 0.0,
             },
             "baseline_ready": baseline_ready,
             "window": {
                 "window_n": window_n,
                 "hr_mean": hr, "hr_var": 2.0, "hr_min": hr - 2, "hr_max": hr + 2,
-                "hrv_rmssd_mean": 28.0, "hrv_rmssd_var": 4.0,
-                "hrv_rmssd_min": 24.0, "hrv_rmssd_max": 32.0,
+                "hr_stability_score_mean": 28.0, "hr_stability_score_var": 4.0,
+                "hr_stability_score_min": 24.0, "hr_stability_score_max": 32.0,
                 "temp_mean": temp, "temp_var": 0.01,
                 "temp_min": temp - 0.1, "temp_max": temp + 0.1,
                 "spo2_mean": spo2, "spo2_var": 0.5,
@@ -2189,7 +2218,7 @@ if __name__ == "__main__":
               f"acc_z={samp['acc_z']}")
         if pipeline_out["baseline_ready"]:
             print(f"  Z-scores → hr={z['hr']:+.1f}  spo2={z['spo2']:+.1f}  "
-                  f"temp={z['temp']:+.1f}  hrv={z['hrv_rmssd']:+.1f}")
+                  f"temp={z['temp']:+.1f}  hr_stab={z['hr_stability_score']:+.1f}")
         else:
             print(f"  Z-scores → (baseline warming up)")
 
@@ -2227,7 +2256,7 @@ if __name__ == "__main__":
         # Frame 1: Normal standing
         ("Normal standing",
          {"timestamp": _ts_fall, "sequence": 1,
-          "hr": 72, "hrv_rmssd": 28.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 72, "hr_stability_score": 28.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.5, "acc_mag": 0.98, "dyn_acc_mag": 0.02,
           "acc_x": 0.02, "acc_y": -0.01, "acc_z": 0.98,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2240,7 +2269,7 @@ if __name__ == "__main__":
         # Frame 2: FREE-FALL (acc_mag drops to 0.3g)
         ("FREE-FALL detected (acc_mag=0.3g)",
          {"timestamp": _ts_fall+1, "sequence": 2,
-          "hr": 85, "hrv_rmssd": 22.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 85, "hr_stability_score": 22.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.3, "dyn_acc_mag": 0.7,
           "acc_x": 0.1, "acc_y": 0.1, "acc_z": 0.2,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2253,7 +2282,7 @@ if __name__ == "__main__":
         # Frame 3: IMPACT (acc_mag spikes to 4.5g, orientation changed)
         ("IMPACT spike (acc_mag=4.5g, now horizontal)",
          {"timestamp": _ts_fall+2, "sequence": 3,
-          "hr": 110, "hrv_rmssd": 15.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 110, "hr_stability_score": 15.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 97.5, "acc_mag": 4.5, "dyn_acc_mag": 3.5,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2266,7 +2295,7 @@ if __name__ == "__main__":
         # Frame 4: Post-impact stillness (1s)
         ("Post-impact: still (1s)",
          {"timestamp": _ts_fall+3, "sequence": 4,
-          "hr": 100, "hrv_rmssd": 18.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 100, "hr_stability_score": 18.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 97.8, "acc_mag": 0.99, "dyn_acc_mag": 0.02,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2279,7 +2308,7 @@ if __name__ == "__main__":
         # Frame 5: Post-impact stillness (2s)
         ("Post-impact: still (2s)",
          {"timestamp": _ts_fall+4, "sequence": 5,
-          "hr": 95, "hrv_rmssd": 20.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 95, "hr_stability_score": 20.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.99, "dyn_acc_mag": 0.01,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2292,7 +2321,7 @@ if __name__ == "__main__":
         # Frame 6: Post-impact stillness (3s)
         ("Post-impact: still (3s)",
          {"timestamp": _ts_fall+5, "sequence": 6,
-          "hr": 92, "hrv_rmssd": 22.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 92, "hr_stability_score": 22.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.99, "dyn_acc_mag": 0.01,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2305,7 +2334,7 @@ if __name__ == "__main__":
         # Frame 7: Post-impact stillness (4s) → CONFIRMED
         ("Post-impact: still (4s) → FALL CONFIRMED",
          {"timestamp": _ts_fall+6, "sequence": 7,
-          "hr": 88, "hrv_rmssd": 24.0, "temp": 36.6, "temp_raw": 36.6,
+          "hr": 88, "hr_stability_score": 24.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.99, "dyn_acc_mag": 0.01,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
           "finger_on": True, "charging": False, "battery_mv": 3850,
@@ -2325,15 +2354,15 @@ if __name__ == "__main__":
     for i, (label, samp_data, t_offset) in enumerate(fall_sequence):
         pipeline_out = {
             "sample": samp_data,
-            "zscores": {"hr": 0.0, "hrv_rmssd": 0.0, "temp": 0.0,
+            "zscores": {"hr": 0.0, "hr_stability_score": 0.0, "temp": 0.0,
                         "spo2": 0.0, "acc_mag": 0.0},
             "baseline_ready": True,
             "window": {
                 "window_n": 25,
                 "hr_mean": samp_data["hr"], "hr_var": 2.0,
                 "hr_min": samp_data["hr"]-2, "hr_max": samp_data["hr"]+2,
-                "hrv_rmssd_mean": 28.0, "hrv_rmssd_var": 4.0,
-                "hrv_rmssd_min": 24.0, "hrv_rmssd_max": 32.0,
+                "hr_stability_score_mean": 28.0, "hr_stability_score_var": 4.0,
+                "hr_stability_score_min": 24.0, "hr_stability_score_max": 32.0,
                 "temp_mean": 36.6, "temp_var": 0.01,
                 "temp_min": 36.5, "temp_max": 36.7,
                 "spo2_mean": 98.0, "spo2_var": 0.5,
