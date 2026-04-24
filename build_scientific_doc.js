@@ -325,7 +325,7 @@ const doc = new Document({
           [2200, 1400, 2800, 2960],
           [
             ["Z-score", "< \u22122.0", "Statistical convention", "2 standard deviations below personal mean; catches personal desaturation that may be within \u201cnormal\u201d population range"],
-            ["Absolute (Concern)", "\u2264 95%", "British Thoracic Society (BTS) 2017", "Normal SpO2 is 95\u2013100%. Values at or below 95% indicate clinical concern requiring monitoring"],
+            ["Absolute (Concern)", "\u2264 94%", "British Thoracic Society (BTS) 2017", "BTS/WHO clinical-concern boundary. Target saturation for healthy adults is 94\u201398%; values \u226494% require monitoring"],
             ["Absolute (Emergency)", "\u2264 90%", "WHO definition of hypoxemia", "Below 90% is medical emergency. Bypasses all persistence requirements for immediate distress escalation"],
           ]
         ),
@@ -333,13 +333,13 @@ const doc = new Document({
         calloutBox("Why Never Suppress SpO2 During Exercise?", "Unlike HR (which is expected to rise during exercise), SpO2 should remain stable or decrease only minimally during physical activity. A significant SpO2 drop during exercise could indicate exercise-induced bronchoconstriction, cardiac shunting, or altitude sickness. The engine NEVER suppresses SpO2 flags regardless of motion state."),
         spacer(),
 
-        calloutBox("Clinical Floor Guard for Z-Score SpO2", "The z-score SpO2 flag includes a clinical floor check: z-score deviation only triggers when the actual SpO2 value is below 96%. Values 96\u2013100% are clinically normal and should not alarm the user even if they deviate significantly from a high personal baseline (e.g., a user with baseline 98.5 \u00B1 0.5 showing SpO2 of 97%). This prevents false \u201Coxygen is low\u201D alerts for healthy individuals with naturally high baselines."),
+        calloutBox("Clinical Floor Guard for Z-Score SpO2", "The z-score SpO2 flag includes a clinical floor check: z-score deviation only triggers when the actual SpO2 value is below 94%. Values 94\u2013100% are clinically normal per BTS guidelines and should not alarm the user even if they deviate significantly from a high personal baseline. This prevents false \u201Coxygen is low\u201D alerts for healthy individuals with naturally high baselines."),
         spacer(),
 
-        heading2("2.3 Heart Rate Variability (HRV RMSSD) \u2014 Weight: 0.25"),
+        heading2("2.3 HR Stability Score \u2014 Weight: 0.25"),
         heading3("The Science"),
-        para("HRV (specifically RMSSD \u2014 Root Mean Square of Successive Differences in R-R intervals) reflects the balance between sympathetic and parasympathetic branches of the autonomic nervous system. High RMSSD indicates strong parasympathetic (vagal) tone \u2014 the body is relaxed and adaptive. Suppressed RMSSD indicates sympathetic dominance \u2014 the classic stress response."),
-        para("HRV is a well-established biomarker in clinical literature (Shaffer & Ginsberg 2017, Thayer et al. 2012) for chronic stress, anxiety, and autonomic dysfunction. Unlike HR (which captures acute stress), HRV captures sustained autonomic imbalance."),
+        para("The HR Stability Score is derived from beat-to-beat HR variability computed from unsmoothed (despiked but not EMA-filtered) heart rate data. It reflects the balance between sympathetic and parasympathetic branches of the autonomic nervous system. High stability scores indicate strong parasympathetic (vagal) tone; suppressed scores indicate sympathetic dominance \u2014 the classic stress response."),
+        para("This metric is informed by HRV literature (Shaffer & Ginsberg 2017, Thayer et al. 2012) but is explicitly labelled \u201CHR Stability Score\u201D rather than \u201CHRV RMSSD\u201D because ring-based PPG at 1 Hz cannot produce clinical-grade RMSSD. The field name is reserved for firmware R1 when proper IBI data becomes available."),
 
         heading3("Threshold Justification"),
         makeTable(
@@ -351,25 +351,26 @@ const doc = new Document({
           ]
         ),
 
-        calloutBox("Why Lower Weight (0.25) Than HR?", "Ring-based PPG HRV is inherently less accurate than chest-strap ECG (Esco & Flatt 2014). The preprocessing pipeline caps HRV SQI at 0.7 to reflect this limitation. HRV earns a lower weight because measurement noise is higher, but it remains valuable as a complementary autonomic indicator."),
+        calloutBox("Why Lower Weight (0.25) Than HR?", "Ring-based PPG HR stability is inherently less accurate than chest-strap ECG HRV (Esco & Flatt 2014). The preprocessing pipeline caps its SQI at 0.7 to reflect this limitation. It earns a lower weight because measurement noise is higher, but remains valuable as a complementary autonomic indicator. Note: the RMSSD is computed from raw unsmoothed HR to preserve beat-to-beat variability that EMA filtering would destroy."),
         spacer(),
 
         heading2("2.4 Skin Temperature \u2014 Weight: 0.10"),
         heading3("The Science"),
         para("The ring measures skin temperature at the finger, which is 4\u20137\u00B0C below core temperature. Skin temperature is influenced by peripheral vasodilation/vasoconstriction (autonomic response), ambient environment, clothing, post-meal thermogenesis, circadian rhythm, and physical activity."),
-        para("This makes skin temperature a poor standalone indicator of distress. However, when combined with other signals, elevated skin temperature supports detection. For example: elevated HR + elevated skin temp + suppressed HRV is more likely genuine fever/infection than HR elevation alone."),
+        para("Skin temperature is now flagged bidirectionally. In acute distress, the sympathetic nervous system triggers peripheral vasoconstriction, causing skin temperature to DROP within 10\u201330 seconds. A RISING skin temperature indicates fever, fatigue, or parasympathetic activity. Both directions are clinically meaningful but represent different conditions."),
 
         heading3("Threshold Justification"),
         makeTable(
           ["Threshold", "Value", "Source", "Rationale"],
           [2200, 1400, 2800, 2960],
           [
-            ["Z-score", "> +2.5", "High threshold (deliberate)", "Because skin temp fluctuates with environment, we require a very large personal deviation (2.5 std devs) before considering it meaningful"],
+            ["Z-score (elevated)", "> +2.5", "High threshold (deliberate)", "Because skin temp fluctuates with environment, we require a very large personal deviation (2.5 std devs) before considering elevation meaningful. Weak supporting signal."],
+            ["Z-score (drop)", "< \u22121.5", "Vasoconstriction response", "Peripheral vasoconstriction during distress causes rapid skin temp drop. This is a STRONGER signal than elevation and contributes more to distress scoring (1.5\u00D7 weight)."],
             ["Absolute", "\u2265 37.8\u00B0C", "Fever screening literature", "Skin temp of 37.8\u00B0C corresponds roughly to core temp of 38.5\u201339.5\u00B0C (accounting for 4\u20137\u00B0C offset), indicating possible fever"],
           ]
         ),
 
-        calloutBox("Critical Design Decision: Temp Alone Never Triggers Stress", "Temperature is classified as a \u201Cweak/supporting\u201D signal. Even if skin temp exceeds threshold, if it is the ONLY flagged signal, the engine state remains \u201Cnormal\u201D with an advisory message. This prevents false alarms from ambient heat, hot beverages, or warm rooms."),
+        calloutBox("Bidirectional Temperature Flagging", "Temperature elevation (z > +2.5) is a weak/supporting signal \u2014 alone it never triggers stress. Temperature DROP (z < \u22121.5) is a stronger distress indicator reflecting sympathetic vasoconstriction and contributes to the weighted distress score at 1.5\u00D7 the normal temperature weight. This dual-direction approach captures both fever/thermal events and acute distress responses."),
         spacer(),
 
         // ═══════════════════════════════════════════════════════
@@ -379,7 +380,7 @@ const doc = new Document({
         para("A single threshold system cannot handle both personalisation and safety. The engine uses two complementary systems operating in parallel:"),
 
         heading2("3.1 Z-Score Thresholds (Personalised)"),
-        para("The preprocessing pipeline maintains a rolling baseline of each signal over approximately 300 frames (~5 minutes). Z-scores are computed as:"),
+        para("The preprocessing pipeline maintains a rolling baseline of each signal over approximately 1800 frames (~30 minutes), gated on normal engine state to prevent baseline contamination by distress events. Z-scores are computed as:"),
         codeBlock("z = (current_value \u2212 baseline_mean) / baseline_std"),
         spacer(60),
         para("This personalises detection to each individual. An athlete with resting HR of 48 bpm who suddenly reaches 80 bpm has z \u2248 +8.0 and would be flagged, even though 80 bpm is \u201Cnormal\u201D for most adults. Conversely, a sedentary adult with resting HR of 88 bpm at 95 bpm has z \u2248 +1.2 and would NOT be flagged."),
@@ -393,7 +394,7 @@ const doc = new Document({
           [
             ["HR", "\u2265 120 bpm", "Clinical sinus tachycardia definition"],
             ["HR", "\u2265 150 bpm (emergency)", "Tanaka 2001 MPHR margins"],
-            ["SpO2", "\u2264 95%", "British Thoracic Society 2017"],
+            ["SpO2", "\u2264 94%", "British Thoracic Society 2017"],
             ["SpO2", "\u2264 90% (emergency)", "WHO hypoxemia definition"],
             ["Skin Temp", "\u2265 37.8\u00B0C", "Fever screening literature"],
           ]
@@ -406,26 +407,26 @@ const doc = new Document({
         // 4. THREE-STATE MODEL
         // ═══════════════════════════════════════════════════════
         heading1("4. The Three-State Classification Model"),
-        para("The engine classifies each evaluation into one of three states based on how many primary signal channels are simultaneously flagged:"),
+        para("The engine classifies each evaluation into one of three states based on the weighted severity score of flagged signals, not a simple flag count. This ensures that the clinical significance of WHICH signals are flagged determines the state, not just how many."),
 
         makeTable(
-          ["State", "Flag Count", "Severity", "Scientific Rationale"],
-          [1400, 1600, 1200, 5160],
+          ["State", "Weighted Score", "Severity", "Scientific Rationale"],
+          [1400, 1800, 1200, 4960],
           [
-            ["Normal", "0 flags (or temp only)", "Low", "All signals within personal baseline. If only temperature is elevated, it is treated as advisory because skin temp is too unreliable as a standalone indicator."],
-            ["Stress", "1 primary flag", "Low\u2013Medium", "A single physiological system is deviating. This could represent genuine stress, but also has many benign explanations (caffeine, postural change, anxiety). Advisory-level intervention."],
-            ["Distress", "2+ primary flags", "High", "Multiple physiological systems are simultaneously disrupted. The probability of a benign explanation drops significantly when HR, SpO2, and/or HRV all deviate together. Urgent intervention suggested."],
+            ["Normal", "< 0.15 (or temp-only)", "Low", "All signals within personal baseline. Temperature alone (elevation or drop) is treated as advisory."],
+            ["Stress", "0.15 \u2013 0.40", "Low\u2013Medium", "A physiological system is deviating, but below the distress threshold. Advisory-level intervention."],
+            ["Distress", "> 0.40", "High", "Significant weighted physiological disruption. Higher-weight signals (HR, SpO2) contribute more than lower-weight signals (temp)."],
           ]
         ),
 
-        heading2("4.1 Why 2+ Signals for Distress?"),
-        para("This follows the principle of converging evidence in clinical assessment. Any single signal can deviate for benign reasons:"),
+        heading2("4.1 Why Weighted Scores Instead of Flag Count?"),
+        para("The previous count-based approach (\u201Cany 2 flags = distress\u201D) ignored signal meaning. Benign combinations would silently escalate:"),
 
-        new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text: "HR elevated alone: could be caffeine, standing up, mild anxiety, dehydration", font: "Arial", size: 22, color: C.textDark })] }),
-        new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text: "SpO2 dipped alone: could be transient sensor error, breath-holding, sleeping posture", font: "Arial", size: 22, color: C.textDark })] }),
-        new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text: "HRV suppressed alone: could be time-of-day variation, digestion, mild fatigue", font: "Arial", size: 22, color: C.textDark })] }),
+        new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text: "Post-meal: mild HR elevation + mild HRV suppression = 2 flags \u2192 false distress", font: "Arial", size: 22, color: C.textDark })] }),
+        new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text: "Hot environment: skin temp + thermoregulatory HR rise = 2 flags \u2192 false distress", font: "Arial", size: 22, color: C.textDark })] }),
+        new Paragraph({ numbering: { reference: "bullets", level: 0 }, spacing: { after: 80 }, children: [new TextRun({ text: "Orthostatic: HR spike on standing + transient HRV dip = 2 flags \u2192 false distress", font: "Arial", size: 22, color: C.textDark })] }),
 
-        para("When two or more systems show simultaneous deviation, the probability of a benign explanation decreases significantly. HR elevated AND SpO2 dropping suggests genuine cardiovascular or respiratory compromise, not just coffee."),
+        para("The weighted-score approach (HR=0.35, SpO2=0.30, HR Stability=0.25, Temp=0.10) ensures that high-weight signals like SpO2 and HR drive the state more than low-weight signals. Two weak signals no longer automatically escalate to distress."),
         spacer(),
 
         // ═══════════════════════════════════════════════════════
@@ -505,7 +506,7 @@ const doc = new Document({
           ["Emergency Condition", "Action", "Clinical Justification"],
           [2800, 2400, 4160],
           [
-            ["SpO2 \u2264 90%", "Immediate DISTRESS", "WHO defines SpO2 < 90% as hypoxemia. Brain damage can begin within minutes of sustained hypoxia. Delay is not acceptable."],
+            ["SpO2 \u2264 90% (10s sustained)", "DISTRESS after 10 consecutive frames", "WHO defines SpO2 < 90% as hypoxemia. However, consumer PPG has \u00B12\u20135% noise (Luks 2017). Single-frame dips are common from hand motion or poor ring placement. Requiring 10 consecutive sub-90% frames (~10 seconds) filters noise while remaining responsive."],
             ["HR \u2265 150 at rest", "Immediate STRESS (minimum)", "Resting HR at 150+ bpm approaches maximum predicted heart rate for many adults (Tanaka 2001). At rest, this suggests SVT, panic disorder, or cardiac emergency."],
           ]
         ),
@@ -543,10 +544,10 @@ const doc = new Document({
         // 9. SIGNAL WEIGHT RATIONALE
         // ═══════════════════════════════════════════════════════
         heading1("9. Signal Weight Rationale"),
-        para("The weights (HR=0.35, SpO2=0.30, HRV=0.25, Temp=0.10) are not arbitrary. They reflect three factors:"),
+        para("The weights (HR=0.35, SpO2=0.30, HR Stability=0.25, Temp=0.10) are not arbitrary. They reflect three factors and now drive the state machine directly via weighted-score gating:"),
 
         makeTable(
-          ["Factor", "HR (0.35)", "SpO2 (0.30)", "HRV (0.25)", "Temp (0.10)"],
+          ["Factor", "HR (0.35)", "SpO2 (0.30)", "HR Stability (0.25)", "Temp (0.10)"],
           [2000, 1840, 1840, 1840, 1840],
           [
             ["Physiological relevance", "Highest \u2014 primary acute stress marker", "Critical safety signal", "Chronic stress marker", "Weak \u2014 affected by environment"],
@@ -556,7 +557,7 @@ const doc = new Document({
           ]
         ),
 
-        para("The sum of weights equals 1.0, forming a normalised confidence scoring basis. Temperature\u2019s low weight (0.10) ensures it contributes minimally to confidence unless it accompanies primary signals."),
+        para("The sum of weights equals 1.0, forming a normalised confidence scoring basis. Temperature\u2019s low weight (0.10) ensures it contributes minimally unless it accompanies primary signals. Note: temperature DROP (vasoconstriction) contributes at 1.5\u00D7 the normal weight, reflecting its stronger clinical significance in distress detection."),
         spacer(),
 
         // ═══════════════════════════════════════════════════════
@@ -766,18 +767,18 @@ const doc = new Document({
         // 15. FALL DETECTION (LAYER 2)
         // ═══════════════════════════════════════════════════════
         heading1("15. Fall Detection \u2014 Layer 2"),
-        para("The second detection layer is a 3-stage biomechanical fall detection model using the ring\u2019s accelerometer and gyroscope data. Falls are one of the most dangerous events for wearable safety devices to detect, particularly for elderly users, those with mobility impairments, and women in distress situations."),
+        para("The second detection layer is a 3-stage biomechanical fall detection model using the ring\u2019s accelerometer data with gravity-vector orientation tracking and physiological corroboration. Thresholds are calibrated for finger-worn sensors per Kangas 2008 methodology."),
 
         heading2("15.1 3-Stage Detection Model"),
-        para("Unlike naive threshold-based fall detectors (which suffer from high false-positive rates), the WUALT fall detector requires ALL three stages to occur in temporal sequence:"),
+        para("The fall detector requires ALL three stages to occur in temporal sequence, with minimum-duration gates to filter single-sample noise:"),
 
         makeTable(
           ["Stage", "Condition", "Threshold", "Rationale"],
           [1400, 2600, 1800, 3560],
           [
-            ["1. Free-fall", "acc_mag < threshold", "< 0.5g", "During a fall, the body enters brief free-fall where effective acceleration drops below 1g. 0.5g threshold catches genuine falls while filtering stumbles"],
-            ["2. Impact", "acc_mag > threshold AND orientation change > 60\u00B0", "> 3.0g, > 60\u00B0", "Impact with ground produces high-g spike. Orientation change confirms body position changed (not just a bump or clap)"],
-            ["3. Post-fall inactivity", "dyn_acc < threshold for 3+ seconds", "< 0.05g for 3s", "Person remains motionless after impact \u2014 suggests injury, unconsciousness, or inability to move"],
+            ["1. Free-fall", "acc_mag < 0.5g for \u22653 consecutive samples", "< 0.5g, 3 samples (~120ms)", "Single sub-0.5g samples are common from rapid hand movements. Requiring 3 consecutive samples ensures genuine free-fall duration (Kangas 2008 uses 0.6g with sustained monitoring)"],
+            ["2. Impact", "acc_mag > 5.0g AND orientation change > 60\u00B0", "> 5.0g, > 60\u00B0", "Raised from 3.0g to 5.0g for finger sensors \u2014 hand activities routinely exceed 3g. Orientation uses low-pass gravity vector compared 1.5s post-impact (not raw acc at impact moment)"],
+            ["3. Post-fall outcome", "Three possible outcomes based on movement pattern", "See 15.4", "Reworked from binary (confirm/cancel) to three-outcome classification for realistic post-fall behaviour"],
           ]
         ),
 
@@ -786,36 +787,77 @@ const doc = new Document({
           ["Parameter", "Value", "Purpose"],
           [2800, 1800, 4760],
           [
-            ["FALL_WINDOW_S", "5.0 seconds", "Maximum time between free-fall detection and impact. Falls happen fast \u2014 if impact doesn\u2019t occur within 5s, the free-fall was something else"],
-            ["FALL_INACTIVITY_S", "3.0 seconds", "How long inactivity must persist to confirm. Brief stillness could be a pause; 3s sustained stillness after impact suggests incapacitation"],
-            ["FALL_CONFIRM_TIMEOUT_S", "10.0 seconds", "If no inactivity confirmation within 10s of impact, the event is cancelled. Person got up \u2014 likely not a serious fall"],
+            ["FALL_WINDOW_S", "1.0 second", "Free-fall from standing (1.5m) takes ~0.55s (Kangas 2008). 1s window prevents associating unrelated events"],
+            ["FALL_INACTIVITY_S", "3.0 seconds", "How long stillness must persist to confirm incapacitation"],
+            ["FALL_CONFIRM_TIMEOUT_S", "10.0 seconds", "Maximum time to determine post-impact outcome"],
+            ["FALL_ORIENTATION_DELAY_S", "1.5 seconds", "Wait time after impact for dynamic motion to decay before measuring gravity-based orientation change"],
           ]
         ),
 
         heading2("15.3 State Machine"),
-        para("The detector operates as a finite state machine with four states:"),
+        para("The detector operates as a finite state machine with five states:"),
 
         new Paragraph({ numbering: { reference: "numbers4", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "IDLE ", font: "Arial", size: 22, bold: true, color: C.accent }),
-          new TextRun({ text: "\u2192 Monitoring for free-fall. Records pre-fall orientation for each frame.", font: "Arial", size: 22, color: C.textDark }),
+          new TextRun({ text: "\u2192 Monitoring for sustained free-fall. Records pre-fall gravity vector from low-pass filter.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
         new Paragraph({ numbering: { reference: "numbers4", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "FREEFALL_DETECTED ", font: "Arial", size: 22, bold: true, color: C.accent }),
-          new TextRun({ text: "\u2192 Free-fall confirmed. Waiting for high-g impact + orientation change within 5s window.", font: "Arial", size: 22, color: C.textDark }),
+          new TextRun({ text: "\u2192 3+ consecutive sub-0.5g samples confirmed. Waiting for high-g impact within 1.0s window.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
         new Paragraph({ numbering: { reference: "numbers4", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "IMPACT_DETECTED ", font: "Arial", size: 22, bold: true, color: C.accent }),
-          new TextRun({ text: "\u2192 Impact confirmed. Monitoring for 3s of post-fall inactivity within 10s timeout.", font: "Arial", size: 22, color: C.textDark }),
+          new TextRun({ text: "\u2192 Impact > 5.0g confirmed. Deferred orientation check at 1.5s. Monitoring for post-fall outcome.", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "numbers4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "CONFIRMED ", font: "Arial", size: 22, bold: true, color: C.accent }),
+          new TextRun({ text: "\u2192 Post-impact stillness \u22653s. High-confidence fall. Triggers emergency alerts.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
         new Paragraph({ numbering: { reference: "numbers4", level: 0 }, spacing: { after: 120 }, children: [
-          new TextRun({ text: "CONFIRMED / CANCELLED ", font: "Arial", size: 22, bold: true, color: C.accent }),
-          new TextRun({ text: "\u2192 Terminal states. CONFIRMED triggers emergency alerts; CANCELLED resets to IDLE.", font: "Arial", size: 22, color: C.textDark }),
+          new TextRun({ text: "CONFIRMED_UNCERTAIN ", font: "Arial", size: 22, bold: true, color: C.accent }),
+          new TextRun({ text: "\u2192 Weak/moderate movement for 10s+ post-impact. Lower confidence; defers to physiological corroboration.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
 
-        calloutBox("Why 3 Stages Instead of 1?", "Single-threshold fall detectors (e.g., \u201Cimpact > 3g = fall\u201D) produce excessive false positives from clapping hands, setting the ring on a table, or hitting a door. The 3-stage model requires a biomechanically plausible sequence: free-fall \u2192 impact + rotation \u2192 inactivity. This dramatically reduces false positives while maintaining sensitivity to real falls."),
-        spacer(),
+        heading2("15.4 Three-Outcome Post-Impact Classification"),
+        para("The previous binary (confirm/cancel) model cancelled falls when any movement was detected, which meant a conscious fallen person trying to get up or reach for help would be classified as a false alarm. The three-outcome model:"),
 
-        calloutBox("Orientation Bug Fix", "An early implementation bug set the pre-fall orientation AFTER checking for free-fall, causing the orientation comparison to measure angle change within the fall itself (always small) rather than pre-fall vs. post-impact (large). The fix ensures pre-fall orientation is captured BEFORE the free-fall check, and only updated during non-freefall frames."),
+        new Paragraph({ numbering: { reference: "bullets3", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "Stillness \u22653s (dyn_acc < 0.05g): ", font: "Arial", size: 22, bold: true, color: C.red }),
+          new TextRun({ text: "CONFIRMED \u2014 unconscious or incapacitated", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets3", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "Vigorous activity \u22653s (dyn_acc > 0.5g): ", font: "Arial", size: 22, bold: true, color: C.green }),
+          new TextRun({ text: "CANCELLED \u2014 person got up, clearly recovered", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets3", level: 0 }, spacing: { after: 120 }, children: [
+          new TextRun({ text: "Weak/moderate movement 10s+ (0.05\u20130.5g): ", font: "Arial", size: 22, bold: true, color: C.amber }),
+          new TextRun({ text: "CONFIRMED_UNCERTAIN \u2014 person may be struggling; defers to physiological corroboration", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+
+        heading2("15.5 Gravity-Based Orientation Check"),
+        para("At the moment of a 5g impact, the raw accelerometer vector is dominated by dynamic force, not gravity. Measuring orientation change from raw acc at impact produces near-random results (Madgwick 2010). The fix: use the low-pass gravity vector from the preprocessing pipeline\u2019s GravityEstimator, and delay the orientation comparison by 1.5 seconds post-impact to allow dynamic motion to decay."),
+
+        heading2("15.6 Physiological Corroboration"),
+        para("After accelerometer-flagged impact, a 30-second corroboration window opens to check physiological signals. Confidence is adjusted based on:"),
+
+        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "HR surge \u226510 bpm within 10s: ", font: "Arial", size: 22, bold: true, color: C.textDark }),
+          new TextRun({ text: "+0.10 confidence (sympathetic response to impact)", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "HR drop \u226415 bpm within 30s: ", font: "Arial", size: 22, bold: true, color: C.textDark }),
+          new TextRun({ text: "+0.15 confidence (vasovagal/syncope \u2014 up to 50% of unexplained falls in elderly)", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "Skin temp drop (z < \u22121.0): ", font: "Arial", size: 22, bold: true, color: C.textDark }),
+          new TextRun({ text: "+0.05 confidence (vasoconstriction)", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "No physiological change for 60s: ", font: "Arial", size: 22, bold: true, color: C.textDark }),
+          new TextRun({ text: "\u22120.20 confidence (likely false alarm)", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+
+        calloutBox("Ring Form Factor Limitation", "Kangas 2008 concluded wrist is not an applicable site for fall detection; ring-mounted sensors have even higher kinematic independence from the torso. The WUALT fall detector is scoped as an assistive/supporting signal, not a standalone alert trigger. Expected FAR of several events per day and sensitivity < 70%. This is documented in the Model Card."),
         spacer(),
 
         // ═══════════════════════════════════════════════════════
@@ -871,11 +913,11 @@ const doc = new Document({
         ),
 
         heading2("16.5 Suppression Rules (False Alarm Reduction)"),
-        para("When the user is in a safe, familiar environment, borderline physiological signals should not cause unnecessary alerts:"),
+        para("When the user is in a safe, familiar environment, borderline physiological signals should not cause unnecessary alerts. Suppression factors are deliberately conservative to account for intimate partner violence (IPV) \u2014 WHO 2021 data shows a significant proportion of violence occurs at home:"),
 
         new Paragraph({ numbering: { reference: "bullets3", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "Home zone: ", font: "Arial", size: 22, bold: true, color: C.green }),
-          new TextRun({ text: "Risk score \u00D7 0.5 \u2014 being at home dramatically reduces false alarm rates", font: "Arial", size: 22, color: C.textDark }),
+          new TextRun({ text: "Risk score \u00D7 0.85 \u2014 softened from 0.5 because IPV occurs at home. A strong suppression factor would mask genuine distress in domestic violence situations.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
         new Paragraph({ numbering: { reference: "bullets3", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "Work zone: ", font: "Arial", size: 22, bold: true, color: C.green }),
@@ -886,26 +928,55 @@ const doc = new Document({
           new TextRun({ text: "Risk score \u00D7 0.7 \u2014 familiar territory with normal movement", font: "Arial", size: 22, color: C.textDark }),
         ]}),
 
-        heading2("16.6 Escalation Patterns (Women\u2019s Safety)"),
-        para("Certain dangerous combinations force immediate escalation regardless of physiological baseline:"),
+        heading2("16.6 Fail-Safe Defaults"),
+        para("The geospatial layer uses fail-safe defaults that err toward alertness when data is missing or ambiguous:"),
 
         new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "is_known_area defaults to False: ", font: "Arial", size: 22, bold: true, color: C.red }),
+          new TextRun({ text: "If the system cannot determine whether the user\u2019s location is familiar, it assumes unfamiliar. The previous default of True could mask danger in genuinely unknown areas.", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "Phone disconnect requires 5-minute sustained disconnection: ", font: "Arial", size: 22, bold: true, color: C.textDark }),
+          new TextRun({ text: "Brief Bluetooth dropouts are common and do not indicate danger. The phone disconnect risk score is 0.4 (reduced from 0.8) and only activates after phone_disconnect_duration_s \u2265 300.", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "Speed threshold 140 km/h: ", font: "Arial", size: 22, bold: true, color: C.textDark }),
+          new TextRun({ text: "Raised from 120 km/h. Highway speeds of 110\u2013130 km/h are normal in many countries; 140+ km/h more reliably indicates dangerous driving or vehicle emergency.", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+
+        heading2("16.7 Alert Priority: Severity-Based Selection"),
+        para("When both physiological distress and geospatial safety alerts are active simultaneously, the system selects the alert with the HIGHEST severity rather than always preferring one type over the other. The previous design always chose the safety alert, which could suppress a critical physiological emergency in favour of a low-level location concern. The severity-based approach (max comparison) ensures the most urgent alert reaches the user regardless of its source layer."),
+
+        heading2("16.8 Escalation Patterns (Women\u2019s Safety)"),
+        para("Certain dangerous combinations force immediate escalation regardless of physiological baseline:"),
+
+        new Paragraph({ numbering: { reference: "bullets5", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "Distress + night + unfamiliar + no phone: ", font: "Arial", size: 22, bold: true, color: C.red }),
           new TextRun({ text: "Forces risk score to 0.90 (critical). This combination strongly suggests a dangerous situation.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
-        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 80 }, children: [
+        new Paragraph({ numbering: { reference: "bullets5", level: 0 }, spacing: { after: 80 }, children: [
           new TextRun({ text: "Route deviation + distress: ", font: "Arial", size: 22, bold: true, color: C.red }),
           new TextRun({ text: "If the user deviates significantly from their expected route while showing physiological distress, risk is escalated by +0.20.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
-        new Paragraph({ numbering: { reference: "bullets4", level: 0 }, spacing: { after: 120 }, children: [
+        new Paragraph({ numbering: { reference: "bullets5", level: 0 }, spacing: { after: 120 }, children: [
           new TextRun({ text: "Phone lost + unfamiliar area: ", font: "Arial", size: 22, bold: true, color: C.red }),
           new TextRun({ text: "Losing phone connection in an unfamiliar area adds +0.15 to risk. The ring becomes the user\u2019s only safety device.", font: "Arial", size: 22, color: C.textDark }),
         ]}),
 
-        heading2("16.7 Privacy-First Architecture"),
+        heading2("16.9 Privacy-First Architecture"),
         para("The geospatial layer never stores raw GPS coordinates. All location processing converts to zone booleans (is_home_zone, is_work_zone, is_known_area, is_unfamiliar_area) before any scoring. Only the boolean flags and computed risk scores are persisted. This ensures user location privacy even if data is compromised."),
 
-        calloutBox("30-Second Critical Persistence", "Before triggering emergency contacts at the critical risk level, the system requires 30 seconds of sustained critical risk. This prevents single-frame spikes from triggering irreversible actions while still responding quickly to genuine emergencies."),
+        heading2("16.10 Risk Persistence Gates"),
+        para("Before triggering emergency actions, the system requires sustained risk at elevated levels:"),
+
+        new Paragraph({ numbering: { reference: "numbers5", level: 0 }, spacing: { after: 80 }, children: [
+          new TextRun({ text: "Critical level: ", font: "Arial", size: 22, bold: true, color: C.red }),
+          new TextRun({ text: "30 seconds sustained before triggering emergency contacts. Prevents single-frame spikes from irreversible actions.", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
+        new Paragraph({ numbering: { reference: "numbers5", level: 0 }, spacing: { after: 120 }, children: [
+          new TextRun({ text: "High risk level: ", font: "Arial", size: 22, bold: true, color: C.amber }),
+          new TextRun({ text: "30 seconds sustained before promoting to high_risk. Extended from critical-only to prevent oscillation at the high-risk boundary.", font: "Arial", size: 22, color: C.textDark }),
+        ]}),
         spacer(),
 
         // ═══════════════════════════════════════════════════════
@@ -913,13 +984,24 @@ const doc = new Document({
         // ═══════════════════════════════════════════════════════
         heading1("17. Scientific References"),
 
+        heading2("17.1 Physiological Detection"),
         para("Tanaka H, Monahan KD, Seals DR (2001). Age-predicted maximal heart rate revisited. Journal of the American College of Cardiology, 37(1), 153-156.", { italic: true }),
         para("British Thoracic Society (2017). BTS Guideline for Oxygen Use in Adults in Healthcare and Emergency Settings. Thorax, 72(Suppl 1), ii1-ii90.", { italic: true }),
         para("World Health Organization (2022). Pulse Oximetry Training Manual. WHO Press.", { italic: true }),
+        para("Luks AM, Swenson ER (2017). Pulse Oximetry for Monitoring Patients with COVID-19 at Home: Potential Pitfalls and Practical Guidance. Annals of the ATS, 17(9), 1040-1046.", { italic: true }),
         para("Esco MR, Flatt AA (2014). Ultra-short-term heart rate variability indexes at rest and post-exercise in athletes. Journal of Sports Science and Medicine, 13(3), 535-541.", { italic: true }),
         para("Shaffer F, Ginsberg JP (2017). An overview of heart rate variability metrics and norms. Frontiers in Public Health, 5, 258.", { italic: true }),
         para("Thayer JF, Ahs F, Fredrikson M, Sollers JJ, Wager TD (2012). A meta-analysis of heart rate variability and neuroimaging studies. Neuroscience and Biobehavioral Reviews, 36(2), 747-756.", { italic: true }),
         para("Vila J, et al. (2007). Cardiac defense: From attention to action. International Journal of Psychophysiology, 66(3), 169-182.", { italic: true }),
+
+        heading2("17.2 Fall Detection"),
+        para("Kangas M, Konttila A, Lindgren P, Winblad I, Jamsa T (2008). Comparison of low-complexity fall detection algorithms for body attached accelerometers. Gait & Posture, 28(2), 285-291.", { italic: true }),
+        para("Madgwick SOH, Harrison AJL, Vaidyanathan R (2010). Estimation of IMU and MARG orientation using a gradient descent algorithm. IEEE International Conference on Rehabilitation Robotics, 1-7.", { italic: true }),
+        para("Bourke AK, O\u2019Brien JV, Lyons GM (2007). Evaluation of a threshold-based tri-axial accelerometer fall detection algorithm. Gait & Posture, 26(2), 194-199.", { italic: true }),
+        para("Bagala F, Becker C, Cappello A, Chiari L, et al. (2012). Evaluation of accelerometer-based fall detection algorithms on real-world falls. PLoS ONE, 7(5), e37062.", { italic: true }),
+
+        heading2("17.3 Geospatial Safety & IPV"),
+        para("World Health Organization (2021). Violence Against Women Prevalence Estimates, 2018. Global, Regional and National Prevalence Estimates for Intimate Partner Violence Against Women. WHO Press.", { italic: true }),
 
         spacer(200),
         divider(),
