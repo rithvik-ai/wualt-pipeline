@@ -1,25 +1,32 @@
 """
-WUALT — Rule-Based Physiological Distress, Fall Detection &
-         Geospatial Safety Risk Engine
+WUALT — Multi-Layer Safety Intelligence Engine
 ====================================================================
 
-A standalone, interpretable rule-based engine that:
-  1. Detects physiological distress from body signals (HR, HRV, SpO2, temp)
-  2. Detects falls via a 3-stage accelerometer model
-  3. Combines physiological state with geospatial context (location,
-     movement, time, familiarity) to produce a unified safety risk level
+A standalone safety intelligence engine with five detection capabilities:
+  1. Physiological distress from body signals (HR, HRV, SpO2, temp)
+  2. Fall detection via 3-stage accelerometer model
+  3. Geospatial safety risk (location, movement, time, familiarity)
+  4. Audio intelligence (environmental sound classification, vocal stress,
+     noise monitoring) — optional, requires ML dependencies
+  +  EDA/GSR processing — optional sensor for future hardware
+
+Layers 1-3 are deterministic rule-based (no ML dependencies).
+Layer 4 uses YAMNet (Google) + AST (MIT) for sound classification
+and Praat/parselmouth for vocal stress analysis. Layer 4 is fully
+optional — the engine works without it.
 
 Answers the question:
-    "Given the user's body signals and current context,
+    "Given the user's body signals, environment, and context,
      how concerning is the situation right now?"
 
 Design goals:
-    - Real-time:       < 700 ms per evaluation (trivially satisfied, O(1))
-    - Interpretable:   every decision is traceable — no ML, no black boxes
+    - Real-time:       < 700 ms per evaluation (Layers 1-3, O(1))
+    - Interpretable:   every decision is traceable
     - Robust:          handles noisy wearable data, cold-start, motion artifacts
     - Human-first:     alerts are calm, clear, actionable — no medical jargon
     - Privacy-first:   no raw GPS stored, only zone classification
     - Women's safety:  tuned for real-world safety scenarios
+    - Graceful degradation: works with any subset of sensors/layers
 
 ---------------------------------------------------------------------------
 INPUT — Physiological (from AnomalyInputBuilder.step())
@@ -79,12 +86,26 @@ OUTPUT — Unified Safety Result
             "risk_score":  float 0.0..1.0,
             "reasoning":   [str, ...],
             "recommended_action": str,
-            "alert": {
-                "title":    str,
-                "message":  str,
-                "severity": "low" | "medium" | "high",
-            },
+            "alert": { ... },
         },
+
+        # --- Audio intelligence layer (None if unavailable) ---
+        "audio_intelligence": {
+            "audio_risk_score": float 0.0..1.0,
+            "audio_risk_level": "normal" | "elevated" | "danger",
+            "env_classification": { ... },
+            "vocal_stress":      { ... },
+            "noise_level":       { ... },
+            "alert": { ... },
+        } | None,
+
+        # --- EDA/GSR (None if unavailable) ---
+        "eda": {
+            "scl_mean":    float,
+            "scr_per_min": float,
+            "eda_score":   float 0.0..1.0,
+            "eda_status":  "calm" | "moderate" | "high_arousal",
+        } | None,
 
         # --- Alert (highest priority across all layers) ---
         "alert": { "title": str, "message": str, "severity": str },
@@ -154,6 +175,50 @@ from dataclasses import dataclass, field, asdict
 from typing import Deque, Dict, List, Optional, Tuple
 
 
+# ---------------------------------------------------------------------------
+# Optional heavy dependencies — audio intelligence (Layer 4) & EDA
+# NOT required for core distress/fall/geo detection.
+# ---------------------------------------------------------------------------
+_AUDIO_AVAILABLE: bool = False
+_EDA_AVAILABLE:   bool = False
+
+_yamnet_model   = None
+_yamnet_classes = None
+_ast_model      = None
+_ast_extractor  = None
+
+
+def _ensure_audio_deps() -> bool:
+    """Lazy-load TensorFlow, PyTorch, Transformers, librosa, parselmouth."""
+    global _AUDIO_AVAILABLE
+    if _AUDIO_AVAILABLE:
+        return True
+    try:
+        import tensorflow       # noqa: F401
+        import tensorflow_hub   # noqa: F401
+        import torch            # noqa: F401
+        from transformers import AutoFeatureExtractor, ASTForAudioClassification  # noqa: F401
+        import librosa          # noqa: F401
+        import parselmouth      # noqa: F401
+        _AUDIO_AVAILABLE = True
+        return True
+    except ImportError:
+        return False
+
+
+def _ensure_eda_deps() -> bool:
+    """Lazy-load scipy for EDA/GSR processing."""
+    global _EDA_AVAILABLE
+    if _EDA_AVAILABLE:
+        return True
+    try:
+        from scipy.signal import find_peaks, butter, filtfilt  # noqa: F401
+        _EDA_AVAILABLE = True
+        return True
+    except ImportError:
+        return False
+
+
 # ===========================================================================
 # 0. CONFIGURATION
 # ===========================================================================
@@ -218,6 +283,33 @@ PERSISTENCE_DISTRESS_S = 60    # seconds before promoting to "distress"
 
 # --- SQI gate ---
 MIN_SQI_FOR_DETECTION = 0.5    # overall SQI below this → skip detection
+
+# --- Audio intelligence (Layer 4) ---
+AUDIO_DANGER_THRESHOLD      = 0.25   # fused YAMNet+AST score → danger flag
+AUDIO_VOCAL_STRESS_THRESHOLD = 0.6   # Praat stress score → high stress flag
+AUDIO_NOISE_DANGEROUS_DB    = 85.0   # dB level considered dangerous
+AUDIO_PERSISTENCE_S         = 10     # seconds of sustained danger sound before alert
+
+# Danger sound classes (AudioSet ontology)
+DANGER_SOUNDS_ENV: List[str] = [
+    "Screaming", "Glass breaking", "Gunshot, gunfire",
+    "Explosion", "Crash", "Alarm", "Siren",
+    "Fire alarm", "Smoke detector",
+]
+DANGER_SOUNDS_PHYSIO: List[str] = [
+    "Crying, sobbing", "Groan", "Gasp",
+]
+
+# Sub-component weights within audio layer
+AUDIO_WEIGHTS = {
+    "env_danger":   0.50,
+    "vocal_stress": 0.30,
+    "noise_level":  0.20,
+}
+
+# --- EDA/GSR (optional sensor, future hardware) ---
+EDA_HIGH_AROUSAL_THRESHOLD = 0.6
+EDA_MODERATE_THRESHOLD     = 0.3
 
 
 # ===========================================================================
@@ -371,6 +463,49 @@ ALERTS_FALL_CANCELLED: List[Dict] = [
         "title": "Glad you're okay",
         "message": "We noticed a sudden movement, but you seem to be moving "
                    "normally now. No action needed.",
+        "severity": "low",
+    },
+]
+
+# ---- Audio intelligence alerts (Layer 4) ----
+
+ALERTS_AUDIO_DANGER: List[Dict] = [
+    {
+        "title": "Dangerous sound detected",
+        "message": "We're picking up sounds that may indicate danger nearby. "
+                   "Stay alert and move to a safe area if possible.",
+        "severity": "high",
+    },
+    {
+        "title": "Loud disturbance detected",
+        "message": "We've detected alarming sounds in your environment. "
+                   "If you feel unsafe, reach out to someone you trust.",
+        "severity": "high",
+    },
+]
+
+ALERTS_AUDIO_STRESS: List[Dict] = [
+    {
+        "title": "Voice stress noticed",
+        "message": "Your voice patterns suggest you may be feeling stressed. "
+                   "Take a moment to breathe if you can.",
+        "severity": "medium",
+    },
+]
+
+ALERTS_AUDIO_NOISE: List[Dict] = [
+    {
+        "title": "High noise level",
+        "message": "The noise around you is quite loud. "
+                   "Consider moving to a quieter area or using hearing protection.",
+        "severity": "low",
+    },
+]
+
+ALERTS_AUDIO_NORMAL: List[Dict] = [
+    {
+        "title": "Audio clear",
+        "message": "No concerning sounds detected in your environment.",
         "severity": "low",
     },
 ]
@@ -2236,7 +2371,430 @@ class SafetyRiskEngine:
 
 
 # ===========================================================================
-# 12. UNIFIED ENGINE — combines all layers
+# 12. AUDIO INTELLIGENCE ENGINE — Layer 4 (phone microphone)
+# ===========================================================================
+
+class AudioIntelligenceEngine:
+    """
+    Layer 4: Audio-based safety intelligence from phone microphone.
+
+    Sub-components:
+        1. Environmental sound classification (YAMNet + AST dual-model fusion)
+        2. Vocal stress analysis (Praat pitch/jitter/shimmer/HNR)
+        3. Noise level monitoring (RMS dB, TWA occupational dose)
+
+    All ML dependencies are optional — if TensorFlow, PyTorch, or
+    parselmouth are not installed, evaluate() returns None and the
+    engine continues without audio intelligence.
+
+    Input:
+        {
+            "audio_array": np.ndarray,     # mono PCM float32, any sample rate
+            "sample_rate": int,            # original sample rate (resampled to 16 kHz internally)
+            "audio_path":  str | None,     # file path (needed for vocal stress only)
+        }
+
+    Output:
+        {
+            "audio_risk_score": float,     # 0.0..1.0 fused score
+            "audio_risk_level": str,       # "normal" | "elevated" | "danger"
+            "env_classification": { ... },
+            "vocal_stress":      { ... },
+            "noise_level":       { ... },
+            "alert": { "title": str, "message": str, "severity": str },
+        }
+    """
+
+    def __init__(self):
+        self._models_loaded: bool = False
+        self._danger_start: Optional[float] = None
+        self._cycle: int = 0
+
+    # --- Model loading (deferred to first evaluate call) ---
+
+    def _load_models(self) -> bool:
+        """Load YAMNet, AST, and class map. Returns False if deps missing."""
+        global _yamnet_model, _yamnet_classes, _ast_model, _ast_extractor
+
+        if self._models_loaded:
+            return True
+        if not _ensure_audio_deps():
+            return False
+
+        try:
+            import tensorflow_hub as hub
+            from transformers import (
+                AutoFeatureExtractor,
+                ASTForAudioClassification,
+            )
+            import requests
+            import csv
+            import io
+
+            # YAMNet (Google)
+            if _yamnet_model is None:
+                _yamnet_model = hub.load(
+                    "https://tfhub.dev/google/yamnet/1"
+                )
+
+            # YAMNet class map
+            if _yamnet_classes is None:
+                r = requests.get(
+                    "https://raw.githubusercontent.com/tensorflow/models/"
+                    "master/research/audioset/yamnet/yamnet_class_map.csv"
+                )
+                _yamnet_classes = [
+                    row[2] for row in csv.reader(io.StringIO(r.text))
+                ][1:]
+
+            # AST (MIT)
+            if _ast_extractor is None:
+                model_id = "MIT/ast-finetuned-audioset-10-10-0.4593"
+                _ast_extractor = AutoFeatureExtractor.from_pretrained(model_id)
+                _ast_model = ASTForAudioClassification.from_pretrained(model_id)
+                _ast_model.eval()
+
+            self._models_loaded = True
+            return True
+
+        except Exception:
+            return False
+
+    # --- Sub-component: Environmental sound classification ---
+
+    def _classify_environment(
+        self, audio, sr: int = 16000
+    ) -> Dict:
+        """
+        Run YAMNet + AST on audio, fuse scores for danger sound classes.
+        Returns danger_score (0..1), top detections, and status.
+        """
+        import tensorflow as tf
+        import torch
+        import numpy as np
+
+        all_danger = DANGER_SOUNDS_ENV + DANGER_SOUNDS_PHYSIO
+        audio_tf = tf.constant(audio.astype(np.float32))
+
+        # ── YAMNet ──
+        scores, _, _ = _yamnet_model(audio_tf)
+        mean_scores = tf.reduce_mean(scores, axis=0).numpy()
+
+        yamnet_hits: Dict[str, float] = {}
+        for cls in all_danger:
+            for i, yc in enumerate(_yamnet_classes):
+                if cls.lower() in yc.lower():
+                    yamnet_hits[cls] = float(mean_scores[i])
+                    break
+
+        # ── AST ──
+        inputs = _ast_extractor(
+            audio, sampling_rate=16000, return_tensors="pt"
+        )
+        with torch.no_grad():
+            logits = _ast_model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)[0]
+        id2label = _ast_model.config.id2label
+
+        ast_hits: Dict[str, float] = {}
+        for cls in all_danger:
+            for idx, label in id2label.items():
+                if cls.lower() in label.lower():
+                    ast_hits[cls] = float(probs[idx])
+                    break
+
+        # ── Fuse (50/50) ──
+        fused: Dict[str, float] = {}
+        for cls in all_danger:
+            y = yamnet_hits.get(cls, 0.0)
+            a = ast_hits.get(cls, 0.0)
+            fused[cls] = round((y * 0.5) + (a * 0.5), 4)
+
+        top5 = sorted(fused.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_score = top5[0][1] if top5 else 0.0
+
+        return {
+            "danger_score":   round(top_score, 4),
+            "top_detections": top5,
+            "status": "danger" if top_score > AUDIO_DANGER_THRESHOLD else "safe",
+        }
+
+    # --- Sub-component: Vocal stress analysis (Praat) ---
+
+    def _compute_vocal_stress(self, audio_path: Optional[str]) -> Dict:
+        """
+        Extract pitch, jitter, shimmer, HNR from audio via parselmouth.
+        Returns stress_score (0..1) and label.
+        """
+        _no_voice = {
+            "stress_score": 0.0, "label": "no_voice",
+            "pitch_hz": 0.0, "jitter_pct": 0.0,
+            "shimmer_pct": 0.0, "hnr_db": 0.0,
+        }
+        if not audio_path:
+            return _no_voice
+
+        try:
+            import parselmouth
+            from parselmouth.praat import call
+
+            snd = parselmouth.Sound(audio_path)
+
+            pitch = call(snd, "To Pitch", 0.0, 75, 600)
+            pitch_mean = call(pitch, "Get mean", 0, 0, "Hertz")
+
+            point_proc = call(
+                snd, "To PointProcess (periodic, cc)", 75, 600
+            )
+            jitter = call(
+                point_proc, "Get jitter (local)",
+                0, 0, 0.0001, 0.02, 1.3,
+            )
+            shimmer = call(
+                [snd, point_proc], "Get shimmer (local)",
+                0, 0, 0.0001, 0.02, 1.3, 1.6,
+            )
+
+            harmonicity = call(
+                snd, "To Harmonicity (cc)", 0.01, 75, 0.1, 1.0
+            )
+            hnr = call(harmonicity, "Get mean", 0, 0)
+
+            # Stress score: high jitter + high shimmer + low HNR → stress
+            stress_score = min(
+                1.0,
+                (jitter * 10) + (shimmer * 5) + max(0, (20 - hnr) / 20),
+            )
+
+            if stress_score > AUDIO_VOCAL_STRESS_THRESHOLD:
+                label = "high_stress"
+            elif stress_score > 0.3:
+                label = "moderate_stress"
+            else:
+                label = "calm"
+
+            return {
+                "stress_score": round(stress_score, 3),
+                "label":        label,
+                "pitch_hz":     round(pitch_mean, 1),
+                "jitter_pct":   round(jitter * 100, 3),
+                "shimmer_pct":  round(shimmer * 100, 3),
+                "hnr_db":       round(hnr, 2),
+            }
+
+        except Exception:
+            return _no_voice
+
+    # --- Sub-component: Noise level / TWA ---
+
+    def _compute_noise_level(self, audio, sr: int = 16000) -> Dict:
+        """
+        Compute RMS dB level and OSHA TWA occupational dose.
+        """
+        import numpy as np
+
+        rms = float(np.sqrt(np.mean(audio ** 2)))
+        db = 20 * math.log10(rms + 1e-9) + 90  # offset to realistic dB
+
+        twa_dose = (db / 90.0) * 100.0
+
+        if db < 70:
+            status = "safe"
+        elif db < AUDIO_NOISE_DANGEROUS_DB:
+            status = "moderate"
+        else:
+            status = "dangerous"
+
+        noise_score = min(1.0, max(0.0, (db - 60) / 60))
+
+        return {
+            "db_level":     round(db, 1),
+            "twa_dose_pct": round(twa_dose, 1),
+            "noise_score":  round(noise_score, 4),
+            "status":       status,
+        }
+
+    # --- Main evaluate ---
+
+    def evaluate(self, audio_input: Optional[Dict]) -> Optional[Dict]:
+        """
+        Evaluate audio data and return Layer 4 result.
+
+        Args:
+            audio_input: {
+                "audio_array": np.ndarray (mono PCM float32),
+                "sample_rate": int,
+                "audio_path":  str | None,
+            }
+            Pass None to skip audio intelligence entirely.
+
+        Returns:
+            Audio intelligence result dict, or None if unavailable.
+        """
+        if audio_input is None:
+            return None
+
+        if not self._load_models():
+            return None
+
+        self._cycle += 1
+        now = time.time()
+
+        import numpy as np
+        import librosa
+
+        audio_raw = np.array(audio_input["audio_array"], dtype=np.float32)
+        sr_in = int(audio_input.get("sample_rate", 16000))
+
+        # Resample to 16 kHz (YAMNet/AST requirement)
+        if sr_in != 16000:
+            audio = librosa.resample(audio_raw, orig_sr=sr_in, target_sr=16000)
+        else:
+            audio = audio_raw
+
+        # Run sub-components
+        env   = self._classify_environment(audio, 16000)
+        vocal = self._compute_vocal_stress(audio_input.get("audio_path"))
+        noise = self._compute_noise_level(audio, 16000)
+
+        # Fuse into a single audio risk score
+        audio_risk = round(
+            env["danger_score"]    * AUDIO_WEIGHTS["env_danger"]
+            + vocal["stress_score"] * AUDIO_WEIGHTS["vocal_stress"]
+            + noise["noise_score"]  * AUDIO_WEIGHTS["noise_level"],
+            4,
+        )
+
+        # Risk level classification
+        if audio_risk > 0.50:
+            risk_level = "danger"
+        elif audio_risk > 0.25:
+            risk_level = "elevated"
+        else:
+            risk_level = "normal"
+
+        # Persistence: require sustained danger before high-severity alert
+        if risk_level == "danger":
+            if self._danger_start is None:
+                self._danger_start = now
+            danger_sustained_s = now - self._danger_start
+        else:
+            self._danger_start = None
+            danger_sustained_s = 0.0
+
+        # Select alert
+        if (risk_level == "danger"
+                and danger_sustained_s >= AUDIO_PERSISTENCE_S):
+            alert = _pick_alert(ALERTS_AUDIO_DANGER, self._cycle)
+        elif risk_level == "danger":
+            # Danger detected but not yet sustained — medium alert
+            alert = _pick_alert(ALERTS_AUDIO_STRESS, self._cycle)
+        elif vocal["label"] == "high_stress":
+            alert = _pick_alert(ALERTS_AUDIO_STRESS, self._cycle)
+        elif noise["status"] == "dangerous":
+            alert = _pick_alert(ALERTS_AUDIO_NOISE, self._cycle)
+        else:
+            alert = _pick_alert(ALERTS_AUDIO_NORMAL, self._cycle)
+
+        return {
+            "audio_risk_score": audio_risk,
+            "audio_risk_level": risk_level,
+            "env_classification": env,
+            "vocal_stress":      vocal,
+            "noise_level":       noise,
+            "alert":             alert,
+        }
+
+
+# ===========================================================================
+# 13. EDA/GSR PROCESSOR — optional sensor (future hardware)
+# ===========================================================================
+
+class EDAProcessor:
+    """
+    Optional EDA (Electrodermal Activity) / GSR signal processing.
+
+    Separates tonic (SCL — Skin Conductance Level) and phasic
+    (SCR — Skin Conductance Response) components. Returns an arousal
+    score 0..1 for optional integration into physiological context.
+
+    This is NOT a detection layer — it is a supplementary signal.
+    When EDA hardware becomes available on the ring, this score can
+    feed into the existing weighted-score gating as a supporting signal.
+
+    Requires scipy. Returns None if unavailable.
+    """
+
+    def evaluate(
+        self,
+        eda_signal: Optional[List[float]],
+        fs: int = 4,
+    ) -> Optional[Dict]:
+        """
+        Process raw EDA/GSR signal.
+
+        Args:
+            eda_signal: raw EDA values (micro-Siemens), sampled at fs Hz.
+            fs:         sampling rate in Hz (default 4 Hz).
+
+        Returns:
+            { "scl_mean", "scr_per_min", "eda_score", "eda_status" }
+            or None if data is unavailable or scipy is missing.
+        """
+        if eda_signal is None or len(eda_signal) < fs * 2:
+            return None
+
+        if not _ensure_eda_deps():
+            return None
+
+        try:
+            import numpy as np
+            from scipy.signal import find_peaks, butter, filtfilt
+
+            sig = np.array(eda_signal, dtype=float)
+
+            # Tonic (SCL) — low-pass
+            b, a = butter(2, 0.05 / (fs / 2), btype="low")
+            scl = filtfilt(b, a, sig)
+
+            # Phasic (SCR) — high-pass
+            b, a = butter(2, 0.05 / (fs / 2), btype="high")
+            scr = filtfilt(b, a, sig)
+
+            peaks, _ = find_peaks(scr, height=0.02, distance=fs * 2)
+            duration_min = len(sig) / fs / 60.0
+            scr_per_min = round(
+                len(peaks) / max(duration_min, 0.01), 2
+            )
+            scl_mean = round(float(np.mean(scl)), 4)
+
+            # Score: high SCR rate + high SCL → arousal
+            scr_score = min(1.0, scr_per_min / 10.0)
+            scl_score = min(1.0, scl_mean / 2.0)
+            eda_score = round(
+                (scr_score * 0.6) + (scl_score * 0.4), 4
+            )
+
+            if eda_score > EDA_HIGH_AROUSAL_THRESHOLD:
+                status = "high_arousal"
+            elif eda_score > EDA_MODERATE_THRESHOLD:
+                status = "moderate"
+            else:
+                status = "calm"
+
+            return {
+                "scl_mean":    scl_mean,
+                "scr_per_min": scr_per_min,
+                "eda_score":   eda_score,
+                "eda_status":  status,
+            }
+
+        except Exception:
+            return None
+
+
+# ===========================================================================
+# 14. UNIFIED ENGINE — combines all layers
 # ===========================================================================
 
 class UnifiedSafetyEngine:
@@ -2245,23 +2803,41 @@ class UnifiedSafetyEngine:
         1. Physiological distress detection (DistressEngine)
         2. Fall detection (FallDetector, inside DistressEngine)
         3. Geospatial safety risk assessment (SafetyRiskEngine)
+        4. Audio intelligence (AudioIntelligenceEngine) — optional
+        +  EDA/GSR processing (EDAProcessor) — optional sensor
 
     Usage:
         engine = UnifiedSafetyEngine()
+
+        # Minimal (Layers 1-3 only):
         result = engine.evaluate(pipeline_output, geo_context=geo_dict)
 
-    The returned dict contains all three layers plus a top-level alert
+        # Full (all layers):
+        result = engine.evaluate(
+            pipeline_output,
+            geo_context=geo_dict,
+            audio_input={"audio_array": audio, "sample_rate": 16000},
+            eda_signal=[1.2, 1.3, ...],
+        )
+
+    The returned dict contains all layers plus a top-level alert
     that reflects the highest-priority concern across all layers.
     """
 
     def __init__(self):
         self.distress = DistressEngine()
         self.safety = SafetyRiskEngine()
+        # Layer 4: Audio intelligence (optional — works without ML deps)
+        self.audio = AudioIntelligenceEngine()
+        # Optional sensor: EDA/GSR (future hardware)
+        self.eda = EDAProcessor()
 
     def evaluate(
         self,
         pipeline_output: Dict,
         geo_context: Optional[Dict] = None,
+        audio_input: Optional[Dict] = None,
+        eda_signal: Optional[List[float]] = None,
     ) -> Dict:
         """
         Run all detection layers and return a unified result.
@@ -2269,12 +2845,22 @@ class UnifiedSafetyEngine:
         Args:
             pipeline_output: from AnomalyInputBuilder.step()
             geo_context:     geospatial context dict (or None)
+            audio_input:     audio data dict (or None to skip Layer 4)
+                             {"audio_array": ndarray, "sample_rate": int,
+                              "audio_path": str | None}
+            eda_signal:      raw EDA/GSR values in micro-Siemens (or None)
 
         Returns:
-            Unified result with physiology, fall, safety, and top alert.
+            Unified result with physiology, fall, safety, audio, and top alert.
         """
         # Layer 1 + 2: Physiological + Fall detection
         distress_result = self.distress.evaluate(pipeline_output)
+
+        # Optional: EDA/GSR processing (supplementary signal)
+        eda_result = self.eda.evaluate(eda_signal)
+
+        # Layer 4: Audio intelligence (optional)
+        audio_result = self.audio.evaluate(audio_input)
 
         # Layer 3: Geospatial safety risk
         fall_result = distress_result.get("fall_detected")
@@ -2282,8 +2868,16 @@ class UnifiedSafetyEngine:
             distress_result, geo_context, fall_result
         )
 
-        # Determine the highest-priority alert across all layers
-        top_alert = self._select_top_alert(distress_result, safety_result)
+        # Cross-layer escalation: audio danger + physio distress → critical
+        if audio_result is not None and geo_context is not None:
+            self._apply_audio_escalation(
+                audio_result, distress_result, safety_result, geo_context
+            )
+
+        # Determine the highest-priority alert across ALL layers
+        top_alert = self._select_top_alert(
+            distress_result, safety_result, audio_result
+        )
 
         # Build unified output
         return {
@@ -2298,6 +2892,12 @@ class UnifiedSafetyEngine:
             # Geospatial safety assessment
             "safety": safety_result,
 
+            # Audio intelligence (Layer 4) — None if unavailable/skipped
+            "audio_intelligence": audio_result,
+
+            # EDA/GSR (optional sensor) — None if unavailable/skipped
+            "eda": eda_result,
+
             # Top-level alert (highest priority across all layers)
             "alert": top_alert,
 
@@ -2305,7 +2905,57 @@ class UnifiedSafetyEngine:
             "debug": distress_result["debug"],
         }
 
-    def _select_top_alert(self, distress_result: Dict, safety_result: Dict) -> Dict:
+    def _apply_audio_escalation(
+        self,
+        audio_result: Dict,
+        distress_result: Dict,
+        safety_result: Dict,
+        geo_context: Dict,
+    ) -> None:
+        """
+        Cross-layer escalation: dangerous audio + other risk factors.
+
+        Modifies safety_result in-place when audio intelligence detects
+        danger sounds in combination with physiological distress or
+        dangerous geospatial context.
+        """
+        audio_level = audio_result.get("audio_risk_level", "normal")
+        if audio_level != "danger":
+            return
+
+        physio_state = distress_result.get("state", "normal")
+        is_night = geo_context.get("is_night", False)
+        is_unfamiliar = geo_context.get("is_unfamiliar_area", False)
+
+        reasoning = safety_result.get("reasoning", [])
+        current_score = safety_result.get("risk_score", 0.0)
+
+        # Danger sound + physiological distress → force critical
+        if physio_state == "distress":
+            new_score = max(current_score, 0.90)
+            if new_score > current_score:
+                safety_result["risk_score"] = new_score
+                safety_result["risk_level"] = "critical"
+                reasoning.append(
+                    "critical: danger sound + physiological distress"
+                )
+
+        # Danger sound + night + unfamiliar → force high risk
+        elif is_night and is_unfamiliar:
+            new_score = max(current_score, 0.75)
+            if new_score > current_score:
+                safety_result["risk_score"] = new_score
+                safety_result["risk_level"] = "high_risk"
+                reasoning.append(
+                    "high risk: danger sound at night in unfamiliar area"
+                )
+
+    def _select_top_alert(
+        self,
+        distress_result: Dict,
+        safety_result: Dict,
+        audio_result: Optional[Dict] = None,
+    ) -> Dict:
         """Pick the highest-severity alert across all layers.
 
         Selection is purely by MAX SEVERITY so that a physiological
@@ -2315,28 +2965,34 @@ class UnifiedSafetyEngine:
         """
         SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
-        distress_alert = distress_result.get("alert", {})
-        safety_alert = safety_result.get("alert", {})
+        candidates = [
+            distress_result.get("alert", {}),
+            safety_result.get("alert", {}),
+        ]
+        if audio_result is not None:
+            candidates.append(audio_result.get("alert", {}))
 
-        d_rank = SEVERITY_RANK.get(distress_alert.get("severity", "low"), 0)
-        s_rank = SEVERITY_RANK.get(safety_alert.get("severity", "low"), 0)
-
-        # Return whichever alert has the higher severity.
-        # On tie, prefer safety alert (more context-aware).
-        if s_rank >= d_rank:
-            return safety_alert
-        return distress_alert
+        best = candidates[0]
+        best_rank = SEVERITY_RANK.get(best.get("severity", "low"), 0)
+        for c in candidates[1:]:
+            c_rank = SEVERITY_RANK.get(c.get("severity", "low"), 0)
+            if c_rank >= best_rank:
+                best = c
+                best_rank = c_rank
+        return best
 
     def stats(self) -> Dict:
-        """Combined stats from both engines."""
+        """Combined stats from all engines."""
         return {
-            "distress": self.distress.stats(),
-            "safety":   self.safety.stats(),
+            "distress":        self.distress.stats(),
+            "safety":          self.safety.stats(),
+            "audio_available": self.audio._models_loaded,
+            "eda_available":   _EDA_AVAILABLE,
         }
 
 
 # ===========================================================================
-# 13. DEMO — run:  python distress_engine.py
+# 15. DEMO — run:  python distress_engine.py
 # ===========================================================================
 
 if __name__ == "__main__":
