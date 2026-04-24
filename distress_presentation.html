@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WUALT — Distress Detection &amp; Safety Intelligence Engine</title>
+<title>WUALT — Multi-Layer Safety Intelligence Engine</title>
 <style>
 /* ═══════════════════════════════════════════════════════════
    DESIGN SYSTEM
@@ -35,6 +35,9 @@
   --risk-high:     #fb923c;
   --risk-critical: #ef4444;
   --geo-accent:    #a78bfa;
+  --audio-accent:  #f472b6;
+  --audio-accent2: #ec4899;
+  --eda-accent:    #34d399;
   --radius:    12px;
   --radius-sm: 8px;
   --shadow:    0 4px 24px rgba(0,0,0,0.4);
@@ -1126,6 +1129,190 @@ nav .nav-links a:hover { color: var(--text); }
   font-family: var(--mono);
 }
 
+/* ═══════════════════════════════════════════════════════════
+   AUDIO INTELLIGENCE & EDA
+   ═══════════════════════════════════════════════════════════ */
+.audio-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+@media (max-width:800px) {
+  .audio-layout { grid-template-columns:1fr; }
+}
+.audio-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  transition: border-color 0.3s;
+}
+.audio-card:hover { border-color: var(--audio-accent); }
+.audio-card h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.audio-card .ac-icon {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  font-size: 16px;
+}
+.sound-class-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.sound-class {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: all 0.3s;
+}
+.sound-class.env {
+  border-color: rgba(244,114,182,0.3);
+  color: var(--audio-accent);
+  background: rgba(244,114,182,0.08);
+}
+.sound-class.physio {
+  border-color: rgba(52,211,153,0.3);
+  color: var(--eda-accent);
+  background: rgba(52,211,153,0.08);
+}
+.audio-weight-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+.audio-weight-row .aw-label {
+  width: 120px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.audio-weight-row .aw-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-card2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.audio-weight-row .aw-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s;
+}
+.audio-weight-row .aw-val {
+  width: 40px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0 0;
+}
+.feature-list li {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.feature-list li:last-child { border-bottom: none; }
+.feature-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.layer-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 40px;
+}
+.layer-pill {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.3s;
+}
+.layer-pill:hover { border-color: var(--accent); }
+.layer-num {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+.layer-info .li-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.layer-info .li-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.cross-layer-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--audio-accent);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-top: 24px;
+}
+.cross-layer-card h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--audio-accent);
+  margin-bottom: 12px;
+}
+.escalation-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.escalation-row:last-child { border-bottom: none; }
+.esc-trigger {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(244,114,182,0.1);
+  color: var(--audio-accent);
+  white-space: nowrap;
+}
+.esc-arrow { color: var(--text-muted); }
+.esc-result {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.esc-result.critical { background: rgba(239,68,68,0.15); color: var(--risk-critical); }
+.esc-result.high { background: rgba(251,146,60,0.15); color: var(--risk-high); }
+
 </style>
 </head>
 <body>
@@ -1143,8 +1330,8 @@ nav .nav-links a:hover { color: var(--text); }
       <li><a href="#signals">Signals</a></li>
       <li><a href="#simulator">Physio Sim</a></li>
       <li><a href="#geo-simulator">Safety Sim</a></li>
+      <li><a href="#audio-section">Audio</a></li>
       <li><a href="#profiles">Profiles</a></li>
-      <li><a href="#dataset">Dataset</a></li>
     </ul>
   </div>
 </nav>
@@ -1154,7 +1341,7 @@ nav .nav-links a:hover { color: var(--text); }
   <div class="container hero-content">
     <div class="hero-badge">
       <span class="dot"></span>
-      Rule-Based · Real-Time · Interpretable
+      Multi-Layer · Real-Time · Interpretable
     </div>
     <h1>
       Safety<br>
@@ -1162,19 +1349,19 @@ nav .nav-links a:hover { color: var(--text); }
       Engine
     </h1>
     <p>
-      A standalone, interpretable engine that combines physiological distress
-      detection with geospatial context — location, time, movement, and
-      familiarity — to produce unified safety risk assessments with calm,
-      human-friendly alerts.
+      A multi-layer safety intelligence engine combining physiological distress,
+      fall detection, geospatial context, and audio intelligence — with
+      optional EDA/GSR processing — to produce unified safety risk assessments
+      with calm, human-friendly alerts.
     </p>
     <div class="hero-stats">
       <div class="hero-stat">
         <div class="num green">&lt;100ms</div>
-        <div class="lbl">Per evaluation</div>
+        <div class="lbl">Per evaluation (L1-3)</div>
       </div>
       <div class="hero-stat">
-        <div class="num purple">3</div>
-        <div class="lbl">Detection layers</div>
+        <div class="num purple">4+1</div>
+        <div class="lbl">Detection layers + EDA</div>
       </div>
       <div class="hero-stat">
         <div class="num blue">5</div>
@@ -1505,6 +1692,216 @@ nav .nav-links a:hover { color: var(--text); }
   </div>
 </section>
 
+<!-- ═══════════════ AUDIO INTELLIGENCE ═══════════════ -->
+<section id="audio-section" style="background:var(--bg-card2);">
+  <div class="container">
+    <div class="section-label" style="color:var(--audio-accent);">Layer 4 + Optional Sensor</div>
+    <div class="section-title">Audio Intelligence &amp; EDA/GSR</div>
+    <div class="section-sub">Phone microphone-based environmental sound classification, vocal stress analysis, and noise monitoring — plus optional electrodermal activity processing for future hardware.</div>
+
+    <!-- Layer overview pills -->
+    <div class="layer-overview fade-in">
+      <div class="layer-pill">
+        <div class="layer-num" style="background:rgba(74,222,128,0.15);color:var(--accent-g);">1</div>
+        <div class="layer-info">
+          <div class="li-name">Physiological</div>
+          <div class="li-sub">HR, SpO2, HRV, Temp</div>
+        </div>
+      </div>
+      <div class="layer-pill">
+        <div class="layer-num" style="background:rgba(56,189,248,0.15);color:var(--accent-b);">2</div>
+        <div class="layer-info">
+          <div class="li-name">Fall Detection</div>
+          <div class="li-sub">3-stage accelerometer</div>
+        </div>
+      </div>
+      <div class="layer-pill">
+        <div class="layer-num" style="background:rgba(167,139,250,0.15);color:var(--geo-accent);">3</div>
+        <div class="layer-info">
+          <div class="li-name">Geospatial</div>
+          <div class="li-sub">Location, time, context</div>
+        </div>
+      </div>
+      <div class="layer-pill" style="border-color:var(--audio-accent);">
+        <div class="layer-num" style="background:rgba(244,114,182,0.15);color:var(--audio-accent);">4</div>
+        <div class="layer-info">
+          <div class="li-name">Audio Intelligence</div>
+          <div class="li-sub">YAMNet + AST + Praat</div>
+        </div>
+      </div>
+      <div class="layer-pill">
+        <div class="layer-num" style="background:rgba(52,211,153,0.15);color:var(--eda-accent);">+</div>
+        <div class="layer-info">
+          <div class="li-name">EDA/GSR</div>
+          <div class="li-sub">Optional sensor</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio cards grid -->
+    <div class="audio-layout fade-in">
+      <!-- Environmental Sound Classification -->
+      <div class="audio-card">
+        <h3><span class="ac-icon" style="background:rgba(244,114,182,0.12);">🎧</span> Environmental Sound Classification</h3>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+          Dual-model fusion of <strong style="color:var(--text);">YAMNet</strong> (Google, TensorFlow Hub) and
+          <strong style="color:var(--text);">AST</strong> (MIT Audio Spectrogram Transformer) for robust danger sound detection.
+          Each model votes independently; scores are fused 50/50 to reduce single-model false positives.
+        </p>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Danger sound classes monitored:</div>
+        <div class="sound-class-grid">
+          <span class="sound-class env">Screaming</span>
+          <span class="sound-class env">Glass Breaking</span>
+          <span class="sound-class env">Gunshot</span>
+          <span class="sound-class env">Explosion</span>
+          <span class="sound-class env">Crash</span>
+          <span class="sound-class env">Alarm</span>
+          <span class="sound-class env">Siren</span>
+          <span class="sound-class env">Fire Alarm</span>
+          <span class="sound-class env">Smoke Detector</span>
+          <span class="sound-class physio">Crying/Sobbing</span>
+          <span class="sound-class physio">Groan</span>
+          <span class="sound-class physio">Gasp</span>
+        </div>
+        <div style="margin-top:16px;font-size:12px;">
+          <span style="color:var(--audio-accent);">Danger threshold:</span>
+          <span style="font-family:var(--mono);color:var(--text);">fused_score &gt; 0.25</span>
+          <span style="color:var(--text-muted);margin-left:8px;">|</span>
+          <span style="color:var(--audio-accent);margin-left:8px;">Persistence:</span>
+          <span style="font-family:var(--mono);color:var(--text);">10s sustained</span>
+        </div>
+      </div>
+
+      <!-- Vocal Stress Analysis -->
+      <div class="audio-card">
+        <h3><span class="ac-icon" style="background:rgba(251,146,60,0.12);">🗣</span> Vocal Stress Analysis</h3>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+          Uses <strong style="color:var(--text);">Praat/parselmouth</strong> to extract acoustic features from the user's voice
+          that correlate with psychological stress. No speech recognition — purely prosodic analysis.
+        </p>
+        <ul class="feature-list">
+          <li><span class="feature-dot" style="background:var(--accent-o);"></span> <strong>Pitch (F0)</strong> — fundamental frequency; rises under stress</li>
+          <li><span class="feature-dot" style="background:var(--distress);"></span> <strong>Jitter</strong> — cycle-to-cycle pitch perturbation; increases with vocal tension</li>
+          <li><span class="feature-dot" style="background:var(--stress);"></span> <strong>Shimmer</strong> — amplitude perturbation; rises with breathiness and fatigue</li>
+          <li><span class="feature-dot" style="background:var(--accent-b);"></span> <strong>HNR</strong> — harmonics-to-noise ratio; drops under stress (more noise)</li>
+        </ul>
+        <div style="margin-top:12px;font-size:12px;">
+          <span style="color:var(--accent-o);">Formula:</span>
+          <code style="font-family:var(--mono);font-size:11px;color:var(--text);background:var(--bg-card2);padding:3px 8px;border-radius:4px;">
+            stress = jitter*10 + shimmer*5 + max(0, (20-HNR)/20)
+          </code>
+        </div>
+      </div>
+
+      <!-- Noise Level Monitoring -->
+      <div class="audio-card">
+        <h3><span class="ac-icon" style="background:rgba(56,189,248,0.12);">📢</span> Noise Level Monitoring</h3>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+          Computes RMS dB level and <strong style="color:var(--text);">OSHA TWA</strong> (Time-Weighted Average) occupational dose
+          to monitor ambient noise exposure.
+        </p>
+        <ul class="feature-list">
+          <li><span class="feature-dot" style="background:var(--normal);"></span> <strong>&lt; 70 dB</strong> — Safe (normal conversation)</li>
+          <li><span class="feature-dot" style="background:var(--stress);"></span> <strong>70 – 85 dB</strong> — Moderate (busy traffic, vacuum cleaner)</li>
+          <li><span class="feature-dot" style="background:var(--distress);"></span> <strong>&gt; 85 dB</strong> — Dangerous (power tools, concerts) — hearing damage risk</li>
+        </ul>
+        <div style="margin-top:12px;font-size:12px;">
+          <span style="color:var(--accent-b);">TWA Dose:</span>
+          <code style="font-family:var(--mono);font-size:11px;color:var(--text);background:var(--bg-card2);padding:3px 8px;border-radius:4px;">
+            dose = (dB / 90) * 100%
+          </code>
+          <span style="color:var(--text-muted);margin-left:6px;font-size:11px;">OSHA: 90 dB = 100% dose over 8 hours</span>
+        </div>
+      </div>
+
+      <!-- EDA/GSR -->
+      <div class="audio-card">
+        <h3><span class="ac-icon" style="background:rgba(52,211,153,0.12);">⚡</span> EDA/GSR Processing</h3>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+          Optional electrodermal activity sensor for future ring hardware. Separates
+          <strong style="color:var(--text);">tonic (SCL)</strong> and <strong style="color:var(--text);">phasic (SCR)</strong>
+          components using Butterworth filters. Measures sympathetic arousal.
+        </p>
+        <ul class="feature-list">
+          <li><span class="feature-dot" style="background:var(--eda-accent);"></span> <strong>SCL</strong> — Skin Conductance Level (tonic baseline)</li>
+          <li><span class="feature-dot" style="background:var(--accent-b);"></span> <strong>SCR</strong> — Skin Conductance Response (phasic peaks)</li>
+          <li><span class="feature-dot" style="background:var(--stress);"></span> <strong>SCR/min</strong> — Response rate correlates with arousal</li>
+        </ul>
+        <div style="margin-top:12px;font-size:12px;">
+          <span style="color:var(--eda-accent);">Status:</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text);background:var(--bg-card2);padding:3px 8px;border-radius:4px;">
+            Optional — requires scipy
+          </span>
+          <span style="color:var(--text-muted);margin-left:6px;font-size:11px;">Not yet on ring hardware</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio weights -->
+    <div class="audio-card fade-in" style="margin-top:24px;">
+      <h3><span class="ac-icon" style="background:rgba(244,114,182,0.12);">⚖</span> Layer 4 Sub-Component Weights</h3>
+      <div class="audio-weight-row">
+        <div class="aw-label">Env. Sound</div>
+        <div class="aw-bar"><div class="aw-fill" style="width:50%;background:linear-gradient(90deg,var(--audio-accent),var(--audio-accent2));"></div></div>
+        <div class="aw-val">0.50</div>
+      </div>
+      <div class="audio-weight-row">
+        <div class="aw-label">Vocal Stress</div>
+        <div class="aw-bar"><div class="aw-fill" style="width:30%;background:linear-gradient(90deg,var(--accent-o),var(--stress));"></div></div>
+        <div class="aw-val">0.30</div>
+      </div>
+      <div class="audio-weight-row">
+        <div class="aw-label">Noise Level</div>
+        <div class="aw-bar"><div class="aw-fill" style="width:20%;background:linear-gradient(90deg,var(--accent-b),var(--accent));"></div></div>
+        <div class="aw-val">0.20</div>
+      </div>
+    </div>
+
+    <!-- Cross-layer escalation -->
+    <div class="cross-layer-card fade-in">
+      <h4>Cross-Layer Escalation Rules</h4>
+      <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">
+        Audio intelligence integrates with other layers for compound threat detection.
+        Unlike geospatial context (modifier only), audio CAN trigger independent alerts.
+      </p>
+      <div class="escalation-row">
+        <span class="esc-trigger">Danger Sound</span>
+        <span class="esc-arrow">+</span>
+        <span class="esc-trigger">Physio Distress</span>
+        <span class="esc-arrow">→</span>
+        <span class="esc-result critical">Force Critical (0.90)</span>
+      </div>
+      <div class="escalation-row">
+        <span class="esc-trigger">Danger Sound</span>
+        <span class="esc-arrow">+</span>
+        <span class="esc-trigger">Night + Unfamiliar</span>
+        <span class="esc-arrow">→</span>
+        <span class="esc-result high">Force High Risk (0.75)</span>
+      </div>
+      <div class="escalation-row">
+        <span class="esc-trigger">Vocal High Stress</span>
+        <span class="esc-arrow">alone</span>
+        <span class="esc-arrow">→</span>
+        <span class="esc-result" style="background:rgba(250,204,21,0.15);color:var(--stress);">Medium Alert</span>
+      </div>
+      <div class="escalation-row">
+        <span class="esc-trigger">Noise &gt; 85 dB</span>
+        <span class="esc-arrow">alone</span>
+        <span class="esc-arrow">→</span>
+        <span class="esc-result" style="background:rgba(74,222,128,0.12);color:var(--normal);">Low Advisory</span>
+      </div>
+    </div>
+
+    <!-- Dependency note -->
+    <div style="margin-top:24px;padding:16px 20px;border:1px dashed var(--border);border-radius:var(--radius);font-size:12px;color:var(--text-muted);">
+      <strong style="color:var(--text);">Graceful Degradation:</strong>
+      All ML dependencies (TensorFlow, PyTorch, Transformers, parselmouth, scipy) are
+      <strong style="color:var(--audio-accent);">optional</strong>. If not installed, Layer 4 returns <code style="font-family:var(--mono);background:var(--bg-card);padding:2px 6px;border-radius:3px;">None</code>
+      and the engine continues with Layers 1-3. Models load on first <code style="font-family:var(--mono);background:var(--bg-card);padding:2px 6px;border-radius:3px;">evaluate()</code> call, not at startup.
+    </div>
+  </div>
+</section>
+
 <!-- ═══════════════ SCENARIOS ═══════════════ -->
 <section id="scenarios">
   <div class="container">
@@ -1577,8 +1974,8 @@ nav .nav-links a:hover { color: var(--text); }
 <!-- ═══════════════ FOOTER ═══════════════ -->
 <footer>
   <div class="container">
-    WUALT Safety Intelligence Engine · Built for safety, designed for humans.<br>
-    <span style="color:var(--text-muted);">Rule-based · Physiological + Geospatial · &lt;100ms latency · Privacy-first</span>
+    WUALT Multi-Layer Safety Intelligence Engine · Built for safety, designed for humans.<br>
+    <span style="color:var(--text-muted);">Physiological + Fall + Geospatial + Audio · &lt;100ms (L1-3) · Privacy-first · Graceful degradation</span>
   </div>
 </footer>
 
