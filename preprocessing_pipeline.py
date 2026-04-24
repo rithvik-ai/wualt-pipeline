@@ -205,6 +205,9 @@ class ProcessedFrame:
     acc_x:         float
     acc_y:         float
     acc_z:         float
+    gravity_x:     float              # low-pass gravity estimate (x-axis)
+    gravity_y:     float              # low-pass gravity estimate (y-axis)
+    gravity_z:     float              # low-pass gravity estimate (z-axis)
 
     finger_on:     bool
     charging:      bool               # charger_stat != idle OR vbus_present
@@ -242,6 +245,9 @@ class ProcessedFrame:
             "acc_x":        self.acc_x,
             "acc_y":        self.acc_y,
             "acc_z":        self.acc_z,
+            "gravity_x":    self.gravity_x,
+            "gravity_y":    self.gravity_y,
+            "gravity_z":    self.gravity_z,
             "finger_on":    self.finger_on,
             "charging":     self.charging,
             "battery_mv":   self.battery_mv,
@@ -777,6 +783,9 @@ class Preprocessor:
             acc_x          = v["accel_x"],
             acc_y          = v["accel_y"],
             acc_z          = v["accel_z"],
+            gravity_x      = self.gravity.gx if self.gravity.gx is not None else 0.0,
+            gravity_y      = self.gravity.gy if self.gravity.gy is not None else 0.0,
+            gravity_z      = self.gravity.gz if self.gravity.gz is not None else 0.0,
             finger_on      = v["finger_on"],
             charging       = v["charging"],
             sqi            = sq,

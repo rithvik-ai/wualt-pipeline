@@ -2067,7 +2067,7 @@ function computeContextScore(ctx) {
   const time = scoreTimeRisk(ctx.hour_of_day);
   const loc = scoreLocationRisk(ctx);
   const move = scoreMovementRisk(ctx);
-  const conn = { score: ctx.phone_connected ? 0 : 0.8, reasons: ctx.phone_connected ? [] : ["phone disconnected"] };
+  const conn = { score: ctx.phone_connected ? 0 : 0.4, reasons: ctx.phone_connected ? [] : ["phone disconnected"] };
   const fam = { score: (ctx.is_unfamiliar_area && !ctx.is_known_area) ? 0.6 : 0 };
 
   const combined =
@@ -2100,7 +2100,7 @@ function evaluateSafety(physioState, physioConf, physioSignals, ctx) {
 
   // Suppression
   if (ctx.is_home_zone && !ctx.is_night && !ctx.sudden_route_change && !ctx.sudden_stop && physioState === "stress") {
-    riskScore *= 0.5; reasoning.push("suppressed: home zone, daytime");
+    riskScore *= 0.85; reasoning.push("suppressed: home zone, daytime");
   } else if (ctx.is_work_zone && ctx.hour_of_day >= 7 && ctx.hour_of_day <= 20 && !ctx.sudden_stop && physioState === "stress") {
     riskScore *= 0.6; reasoning.push("suppressed: work zone, business hours");
   } else if (ctx.is_known_area && ctx.is_walking && !ctx.is_night && !ctx.sudden_route_change && physioState === "stress") {
@@ -2160,7 +2160,7 @@ function evaluateSafety(physioState, physioConf, physioSignals, ctx) {
 // ── Geo state ───────────────────────────────────────────────
 let geoState = {
   is_home_zone: true, is_work_zone: false,
-  is_known_area: true, is_unfamiliar_area: false,
+  is_known_area: false, is_unfamiliar_area: false,
   is_stationary: true, is_walking: false,
   is_vehicle_like_motion: false,
   sudden_route_change: false, sudden_stop: false,

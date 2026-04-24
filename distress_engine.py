@@ -108,17 +108,17 @@ DETECTION LOGIC — DISTRESS (physiological)
 DETECTION LOGIC — FALL (3-stage)
 ---------------------------------------------------------------------------
     Stage 1 — IMPACT DETECTION (threshold-based)
-        • Free-fall:  acc_mag drops below 0.5g (weightlessness)
-        • Impact:     acc_mag spikes above 3.0g (sudden deceleration)
+        • Free-fall:  acc_mag drops below 0.5g for 3 consecutive samples
+        • Impact:     acc_mag spikes above 5.0g (sudden deceleration)
 
     Stage 2 — ORIENTATION CHANGE
         • Check if body orientation changed by ~90° from vertical
         • Estimated from accelerometer axis ratios (no gyro needed)
 
-    Stage 3 — POST-FALL INACTIVITY
-        • Confirm fall by checking for stillness (dyn_acc < 0.05g)
-          for 3–5 seconds after impact
-        • If movement resumes → likely false alarm, cancel
+    Stage 3 — POST-FALL THREE-OUTCOME MONITORING
+        • Stillness >= 3s (dyn_acc < 0.05g) → CONFIRMED (unconscious)
+        • Vigorous activity (dyn_acc > 0.5g sustained 3s+) → CANCELLED
+        • Weak/moderate movement 10s+ → CONFIRMED_UNCERTAIN
 
 ---------------------------------------------------------------------------
 DETECTION LOGIC — GEOSPATIAL SAFETY (context layer)
@@ -198,12 +198,19 @@ MOTION_THRESHOLDS = {
 
 # --- Fall detection thresholds (3-stage model) ---
 FALL_FREEFALL_G         = 0.5    # acc_mag < 0.5g → free-fall detected
-FALL_IMPACT_G           = 3.0    # acc_mag > 3.0g → impact spike detected
+FALL_IMPACT_G           = 5.0    # acc_mag > 5.0g → impact spike detected
 FALL_ORIENTATION_DEG    = 60.0   # body angle change > 60° → posture changed
 FALL_INACTIVITY_G       = 0.05   # dyn_acc_mag < 0.05g → stillness
 FALL_INACTIVITY_S       = 3.0    # seconds of post-impact stillness to confirm
-FALL_WINDOW_S           = 5.0    # max seconds between free-fall and impact
+FALL_WINDOW_S           = 1.0    # max seconds between free-fall and impact
 FALL_CONFIRM_TIMEOUT_S  = 10.0   # max seconds to wait for inactivity confirmation
+FALL_ORIENTATION_DELAY_S = 1.5   # seconds post-impact to wait before orientation check (A.1)
+FALL_PHYSIO_WINDOW_S    = 30.0   # seconds post-impact to monitor physio corroboration (A.7)
+FALL_PHYSIO_HR_SURGE    = 10.0   # bpm increase within 10s → sympathetic response (A.7)
+FALL_PHYSIO_HR_DROP     = -15.0  # bpm decrease within 30s → vasovagal/syncope (A.7)
+FALL_PHYSIO_TEMP_Z      = -1.0   # temp z-score below this → vasoconstriction (A.7)
+FALL_PHYSIO_STILLNESS_S = 3.0    # seconds of post-impact stillness for corroboration (A.7)
+FALL_PHYSIO_NO_CHANGE_S = 60.0   # seconds with no physio change → likely false alarm (A.7)
 
 # --- Persistence ---
 PERSISTENCE_STRESS_S   = 60    # seconds before promoting to "stress"
@@ -347,6 +354,15 @@ ALERTS_FALL_CONFIRMED: List[Dict] = [
         "message": "We detected a fall followed by a period of stillness. "
                    "If you're hurt or need assistance, help is available.",
         "severity": "high",
+    },
+]
+
+ALERTS_FALL_UNCERTAIN: List[Dict] = [
+    {
+        "title": "Are you alright?",
+        "message": "We detected a possible fall but you seem to be moving a little. "
+                   "If you need help, press the alert button or call out.",
+        "severity": "medium",
     },
 ]
 
@@ -612,19 +628,19 @@ class FallDetector:
         IDLE → FREEFALL_DETECTED → IMPACT_DETECTED → CONFIRMED / CANCELLED
 
     Stage 1 — Impact Detection (threshold-based)
-        • Free-fall:  acc_mag drops below 0.5g (weightlessness during fall)
-        • Impact:     acc_mag spikes above 3.0g (sudden deceleration on landing)
-        • Both must occur within a 5-second window
+        • Free-fall:  acc_mag drops below 0.5g for 3 consecutive samples
+        • Impact:     acc_mag spikes above 5.0g (sudden deceleration on landing)
+        • Both must occur within a 1-second window
 
     Stage 2 — Orientation Change
         • After impact, check if body orientation changed significantly
         • Estimated from accelerometer axis ratios (gravity vector shift)
         • A ~60°+ change from the pre-fall orientation → likely fell down
 
-    Stage 3 — Post-Fall Inactivity
-        • Monitor dynamic acceleration for 3–5 seconds after impact
-        • If dyn_acc < 0.05g (near-zero movement) → CONFIRMED fall
-        • If movement resumes → likely stumble/trip, CANCEL
+    Stage 3 — Post-Fall Three-Outcome Monitoring
+        • Stillness >= 3s (dyn_acc < 0.05g) → CONFIRMED (unconscious)
+        • Vigorous activity (dyn_acc > 0.5g sustained 3s+) → CANCELLED
+        • Weak/moderate movement 10s+ → CONFIRMED_UNCERTAIN
 
     All thresholds are configurable via module-level constants.
     """
@@ -636,22 +652,46 @@ class FallDetector:
     CONFIRMED         = "confirmed"
     CANCELLED         = "cancelled"
 
+    # Additional post-impact states for three-outcome logic (A.4)
+    CONFIRMED_UNCERTAIN = "confirmed_uncertain"
+
     def __init__(self):
         self.state: str = self.IDLE
         self._freefall_time: Optional[float] = None
         self._impact_time: Optional[float] = None
         self._pre_fall_orientation: Optional[Tuple[float, float, float]] = None
+        self._pre_fall_gravity: Optional[Tuple[float, float, float]] = None  # A.1: gravity vector before fall
+        self._orientation_checked: bool = False  # A.1: deferred orientation check flag
         self._post_impact_still_start: Optional[float] = None
+        self._post_impact_vigorous_start: Optional[float] = None  # A.4: vigorous activity timer
+        self._post_impact_weak_start: Optional[float] = None      # A.4: weak/moderate movement timer
         self._last_orientation: Tuple[float, float, float] = (0.0, 0.0, 1.0)
+        self._last_gravity: Tuple[float, float, float] = (0.0, 0.0, 1.0)  # A.1: track last gravity vector
         self._result_hold_until: Optional[float] = None  # hold confirmed/cancelled
+        self._freefall_consecutive: int = 0  # A.3: consecutive sub-0.5g samples
 
-    def update(self, sample: Dict, now: float) -> Dict:
+        # A.7: Physiological corroboration state
+        self._impact_hr: Optional[float] = None       # HR at time of impact
+        self._physio_window_end: Optional[float] = None  # end of corroboration window
+        self._physio_confidence_boost: float = 0.0     # accumulated confidence boost
+        self._physio_stillness_start: Optional[float] = None  # post-impact stillness tracker
+        self._physio_no_change_start: Optional[float] = None  # no-change tracker
+        self._physio_last_hr: Optional[float] = None
+        self._physio_last_temp_z: Optional[float] = None
+        self._physio_corroboration_reasons: List[str] = []
+
+    def update(self, sample: Dict, now: float,
+              gravity_x: float = 0.0, gravity_y: float = 0.0,
+              gravity_z: float = 1.0) -> Dict:
         """
         Process one frame and return fall detection status.
 
         Args:
-            sample: preprocessed frame with acc_mag, dyn_acc_mag, acc_x/y/z
-            now:    current timestamp (seconds)
+            sample:    preprocessed frame with acc_mag, dyn_acc_mag, acc_x/y/z
+            now:       current timestamp (seconds)
+            gravity_x: low-pass gravity estimate x (from ProcessedFrame)
+            gravity_y: low-pass gravity estimate y (from ProcessedFrame)
+            gravity_z: low-pass gravity estimate z (from ProcessedFrame)
 
         Returns:
             {
@@ -667,30 +707,42 @@ class FallDetector:
         acc_y = sample.get("acc_y", 0.0) or 0.0
         acc_z = sample.get("acc_z", 1.0) or 1.0
         current_orientation = (acc_x, acc_y, acc_z)
+        current_gravity = (gravity_x, gravity_y, gravity_z)
 
-        # --- Hold confirmed/cancelled result briefly, then reset ---
-        if self.state in (self.CONFIRMED, self.CANCELLED):
+        # --- Hold confirmed/cancelled/uncertain result briefly, then reset ---
+        if self.state in (self.CONFIRMED, self.CANCELLED, self.CONFIRMED_UNCERTAIN):
             if self._result_hold_until and now < self._result_hold_until:
                 if self.state == self.CONFIRMED:
                     return self._make_result(True, self.CONFIRMED, 0.95,
                                              "Fall confirmed — post-fall inactivity detected")
+                elif self.state == self.CONFIRMED_UNCERTAIN:
+                    return self._make_result(True, self.CONFIRMED_UNCERTAIN, 0.55,
+                                             "Fall detected — weak movement, uncertain severity")
                 else:
                     return self._make_result(False, self.CANCELLED, 0.0,
                                              "Movement resumed — false alarm cleared")
             # Hold expired, reset
             self._reset()
 
-        # === STAGE 1a: Detect free-fall ===
+        # === STAGE 1a: Detect free-fall (requires 3 consecutive sub-0.5g samples) ===
         if self.state == self.IDLE:
             if acc_mag < FALL_FREEFALL_G:
-                # Save orientation BEFORE the fall (from the previous frame)
-                self._pre_fall_orientation = self._last_orientation
-                self.state = self.FREEFALL_DETECTED
-                self._freefall_time = now
-                return self._make_result(False, "freefall", 0.2,
-                                         "Free-fall detected — watching for impact")
+                self._freefall_consecutive += 1
+                if self._freefall_consecutive >= 3:
+                    # Save orientation BEFORE the fall (from the previous frame)
+                    self._pre_fall_orientation = self._last_orientation
+                    # A.1: Save pre-fall GRAVITY vector (not raw acc)
+                    self._pre_fall_gravity = self._last_gravity
+                    self.state = self.FREEFALL_DETECTED
+                    self._freefall_time = now
+                    self._freefall_consecutive = 0
+                    return self._make_result(False, "freefall", 0.2,
+                                             "Free-fall detected — watching for impact")
+            else:
+                self._freefall_consecutive = 0
             # Only update last orientation for non-freefall frames
             self._last_orientation = current_orientation
+            self._last_gravity = current_gravity
 
         # === STAGE 1b: Detect impact after free-fall ===
         elif self.state == self.FREEFALL_DETECTED:
@@ -702,63 +754,220 @@ class FallDetector:
 
             if acc_mag > FALL_IMPACT_G:
                 self._impact_time = now
+                # A.1: At impact, raw acc is dominated by dynamic force (3-5g),
+                # NOT gravity. Defer orientation check until dynamic motion decays
+                # (1-2 seconds post-impact). Move directly to IMPACT_DETECTED.
+                self.state = self.IMPACT_DETECTED
+                self._orientation_checked = False
+                self._post_impact_still_start = None
+                # A.7: Record HR at time of impact for physio corroboration
+                self._impact_hr = sample.get("hr")
+                self._physio_window_end = now + FALL_PHYSIO_WINDOW_S
+                self._physio_confidence_boost = 0.0
+                self._physio_corroboration_reasons = []
+                self._physio_no_change_start = now
+                self._physio_last_hr = self._impact_hr
+                self._physio_last_temp_z = None
+                return self._make_result(False, "impact", 0.5,
+                                         "Impact detected — deferring orientation check "
+                                         "until dynamic motion decays")
 
-                # === STAGE 2: Check orientation change ===
-                angle_change = self._compute_angle_change(
-                    self._pre_fall_orientation, current_orientation
-                )
-                if angle_change >= FALL_ORIENTATION_DEG:
-                    self.state = self.IMPACT_DETECTED
-                    self._post_impact_still_start = None
-                    return self._make_result(False, "impact", 0.6,
-                                             f"Impact detected — orientation changed {angle_change:.0f}°, "
-                                             f"monitoring for inactivity")
-                else:
-                    # Impact but no orientation change — likely a bump, not a fall
-                    self._reset()
-                    return self._make_result(False, "none", 0.0,
-                                             f"Impact detected but orientation unchanged ({angle_change:.0f}°) — not a fall")
-
-        # === STAGE 3: Post-fall inactivity monitoring ===
+        # === STAGE 3: Post-fall three-outcome monitoring ===
+        # A.1: Deferred orientation check — wait 1-2s post-impact for dynamic
+        # motion to decay, then compare pre-fall gravity vector with current
+        # gravity vector (not raw acc which is dominated by impact force).
+        # (a) stillness >= 3s (dyn_acc < 0.05g) → CONFIRMED (unconscious)
+        # (b) vigorous activity (dyn_acc > 0.5g sustained 3s+) → CANCELLED
+        # (c) weak/moderate movement for 10s+ → CONFIRMED_UNCERTAIN
         elif self.state == self.IMPACT_DETECTED:
+            # A.1: Deferred orientation check using gravity vectors
+            if not self._orientation_checked:
+                time_since_impact = now - self._impact_time
+                if time_since_impact >= FALL_ORIENTATION_DELAY_S:
+                    # Dynamic motion has decayed — now compare gravity vectors
+                    angle_change = self._compute_angle_change(
+                        self._pre_fall_gravity, current_gravity
+                    )
+                    self._orientation_checked = True
+                    if angle_change < FALL_ORIENTATION_DEG:
+                        # No significant orientation change — likely a bump, not a fall
+                        self._reset()
+                        return self._make_result(False, "none", 0.0,
+                                                 f"Post-impact gravity orientation unchanged "
+                                                 f"({angle_change:.0f}°) — not a fall")
+                    # Orientation changed — continue monitoring
+                else:
+                    # Still waiting for dynamic motion to decay
+                    return self._make_result(False, "impact", 0.5,
+                                             f"Impact detected — waiting {time_since_impact:.1f}s/"
+                                             f"{FALL_ORIENTATION_DELAY_S}s for orientation check")
+
             # Timeout: if too long since impact without confirmation, cancel
             if now - self._impact_time > FALL_CONFIRM_TIMEOUT_S:
+                # If there was weak movement the whole time, mark uncertain
+                if (self._post_impact_weak_start is not None
+                        and now - self._post_impact_weak_start >= 10.0):
+                    self.state = self.CONFIRMED_UNCERTAIN
+                    self._result_hold_until = now + 10.0
+                    return self._make_result(True, self.CONFIRMED_UNCERTAIN, 0.55,
+                                             "Fall detected — weak movement only, uncertain severity")
                 self.state = self.CANCELLED
                 self._result_hold_until = now + 3.0
                 return self._make_result(False, self.CANCELLED, 0.0,
                                          "Confirmation timeout — movement detected")
 
             if dyn_acc < FALL_INACTIVITY_G:
-                # User is still
+                # (a) User is still — track stillness
                 if self._post_impact_still_start is None:
                     self._post_impact_still_start = now
                 still_duration = now - self._post_impact_still_start
+                # Reset vigorous timer (no longer vigorous)
+                self._post_impact_vigorous_start = None
 
                 if still_duration >= FALL_INACTIVITY_S:
-                    # === CONFIRMED FALL ===
+                    # === CONFIRMED FALL (unconscious/incapacitated) ===
                     self.state = self.CONFIRMED
-                    self._result_hold_until = now + 10.0  # hold for 10 seconds
+                    self._result_hold_until = now + 10.0
                     return self._make_result(True, self.CONFIRMED, 0.95,
                                              f"Fall confirmed — {still_duration:.1f}s of post-impact inactivity")
                 else:
                     return self._make_result(False, "inactivity_check", 0.7,
                                              f"Post-impact stillness: {still_duration:.1f}s / {FALL_INACTIVITY_S}s")
-            else:
-                # Movement resumed → likely false alarm
+
+            elif dyn_acc > 0.5:
+                # (b) Vigorous activity — person got up, clearly fine
                 self._post_impact_still_start = None
-                # Only cancel if sustained movement (give a brief grace)
-                if dyn_acc > 0.15:
+                self._post_impact_weak_start = None
+                if self._post_impact_vigorous_start is None:
+                    self._post_impact_vigorous_start = now
+                vigorous_duration = now - self._post_impact_vigorous_start
+
+                if vigorous_duration >= 3.0:
+                    # Sustained vigorous activity → CANCELLED
                     self.state = self.CANCELLED
                     self._result_hold_until = now + 3.0
                     return self._make_result(False, self.CANCELLED, 0.0,
-                                             "Movement resumed after impact — false alarm")
+                                             "Vigorous movement after impact — person recovered")
                 else:
                     return self._make_result(False, "impact", 0.5,
-                                             "Minor movement post-impact — still monitoring")
+                                             f"Vigorous movement post-impact: {vigorous_duration:.1f}s / 3.0s")
+
+            else:
+                # (c) Weak/moderate movement (0.05g <= dyn_acc <= 0.5g)
+                self._post_impact_still_start = None
+                self._post_impact_vigorous_start = None
+                if self._post_impact_weak_start is None:
+                    self._post_impact_weak_start = now
+                weak_duration = now - self._post_impact_weak_start
+
+                if weak_duration >= 10.0:
+                    # Sustained weak movement → CONFIRMED_UNCERTAIN
+                    self.state = self.CONFIRMED_UNCERTAIN
+                    self._result_hold_until = now + 10.0
+                    return self._make_result(True, self.CONFIRMED_UNCERTAIN, 0.55,
+                                             f"Fall detected — {weak_duration:.1f}s of weak movement, uncertain severity")
+                else:
+                    return self._make_result(False, "impact", 0.5,
+                                             f"Weak movement post-impact: {weak_duration:.1f}s — still monitoring")
 
         # --- Default: IDLE, no fall activity ---
         self._last_orientation = current_orientation
+        self._last_gravity = current_gravity
         return self._make_result(False, "none", 0.0, "No fall activity")
+
+    def check_physio_corroboration(
+        self,
+        hr: Optional[float],
+        temp_z: float,
+        spo2_z: float,
+        dyn_acc: float,
+        now: float,
+    ) -> Tuple[float, List[str]]:
+        """
+        A.7: Physiological corroboration after an accelerometer-flagged impact.
+
+        Called each frame during the 30-second post-impact corroboration window.
+        Accumulates confidence adjustments based on physiological signals that
+        corroborate (or contradict) a real fall.
+
+        Args:
+            hr:       current heart rate (bpm)
+            temp_z:   current temperature z-score
+            spo2_z:   current SpO2 z-score
+            dyn_acc:  current dynamic acceleration magnitude
+            now:      current timestamp
+
+        Returns:
+            (confidence_adjustment, list_of_reasons)
+            Positive adjustment = more confident it's a real fall.
+            Negative adjustment = less confident (likely false alarm).
+        """
+        if self._impact_time is None or self._physio_window_end is None:
+            return 0.0, []
+
+        # Outside corroboration window
+        if now > self._physio_window_end:
+            return self._physio_confidence_boost, list(self._physio_corroboration_reasons)
+
+        time_since_impact = now - self._impact_time
+        reasons = []
+        boost = 0.0
+
+        # --- HR surge (sympathetic response): HR delta >= +10 bpm within 10s ---
+        if (hr is not None and self._impact_hr is not None
+                and time_since_impact <= 10.0):
+            hr_delta = hr - self._impact_hr
+            if hr_delta >= FALL_PHYSIO_HR_SURGE:
+                boost += 0.10
+                reasons.append(f"HR surge +{hr_delta:.0f} bpm (sympathetic response)")
+
+        # --- HR drop (vasovagal/syncope): HR delta <= -15 bpm within 30s ---
+        if (hr is not None and self._impact_hr is not None
+                and time_since_impact <= 30.0):
+            hr_delta = hr - self._impact_hr
+            if hr_delta <= FALL_PHYSIO_HR_DROP:
+                boost += 0.15
+                reasons.append(f"HR drop {hr_delta:.0f} bpm (vasovagal/syncope)")
+
+        # --- Skin temp drop (vasoconstriction): temp z < -1.0 ---
+        if temp_z < FALL_PHYSIO_TEMP_Z:
+            boost += 0.05
+            reasons.append(f"Skin temp drop (z={temp_z:.1f}, vasoconstriction)")
+
+        # --- Post-impact stillness >= 3s ---
+        if dyn_acc < FALL_INACTIVITY_G:
+            if self._physio_stillness_start is None:
+                self._physio_stillness_start = now
+            still_duration = now - self._physio_stillness_start
+            if still_duration >= FALL_PHYSIO_STILLNESS_S:
+                boost += 0.10
+                reasons.append(f"Post-impact stillness {still_duration:.1f}s")
+        else:
+            self._physio_stillness_start = None
+
+        # --- No change in anything over 60s → likely false alarm ---
+        if hr is not None and self._physio_last_hr is not None:
+            hr_changed = abs(hr - self._physio_last_hr) > 3.0
+            temp_changed = (self._physio_last_temp_z is not None
+                            and abs(temp_z - self._physio_last_temp_z) > 0.5)
+            if hr_changed or temp_changed:
+                self._physio_no_change_start = now
+
+        if (self._physio_no_change_start is not None
+                and now - self._physio_no_change_start >= FALL_PHYSIO_NO_CHANGE_S):
+            boost -= 0.20
+            reasons.append("No physiological change for 60s — likely false alarm")
+
+        # Track last values for change detection
+        if hr is not None:
+            self._physio_last_hr = hr
+        self._physio_last_temp_z = temp_z
+
+        # Accumulate (don't let it go below -0.3 or above +0.3)
+        self._physio_confidence_boost = max(-0.3, min(0.3, self._physio_confidence_boost + boost))
+        self._physio_corroboration_reasons = reasons
+
+        return self._physio_confidence_boost, reasons
 
     def _compute_angle_change(
         self,
@@ -806,8 +1015,22 @@ class FallDetector:
         self._freefall_time = None
         self._impact_time = None
         self._pre_fall_orientation = None
+        self._pre_fall_gravity = None
+        self._orientation_checked = False
         self._post_impact_still_start = None
+        self._post_impact_vigorous_start = None
+        self._post_impact_weak_start = None
         self._result_hold_until = None
+        self._freefall_consecutive = 0
+        # A.7: Reset physio corroboration state
+        self._impact_hr = None
+        self._physio_window_end = None
+        self._physio_confidence_boost = 0.0
+        self._physio_stillness_start = None
+        self._physio_no_change_start = None
+        self._physio_last_hr = None
+        self._physio_last_temp_z = None
+        self._physio_corroboration_reasons = []
 
 
 # ===========================================================================
@@ -951,8 +1174,44 @@ class DistressEngine:
 
         # ------------------------------------------------------------------
         # Step 1b: Fall detection (3-stage model)
+        # A.1: Pass gravity vector components from ProcessedFrame so the
+        # orientation check uses the low-pass gravity estimate (not raw
+        # acc which is dominated by dynamic force at impact).
         # ------------------------------------------------------------------
-        fall_result = self.fall_detector.update(sample, now)
+        gravity_x = sample.get("gravity_x", 0.0) or 0.0
+        gravity_y = sample.get("gravity_y", 0.0) or 0.0
+        gravity_z = sample.get("gravity_z", 1.0) or 1.0
+        fall_result = self.fall_detector.update(
+            sample, now,
+            gravity_x=gravity_x,
+            gravity_y=gravity_y,
+            gravity_z=gravity_z,
+        )
+
+        # A.7: Physiological corroboration during post-impact window
+        if (self.fall_detector.state in (
+                FallDetector.IMPACT_DETECTED,
+                FallDetector.CONFIRMED,
+                FallDetector.CONFIRMED_UNCERTAIN)
+                and self.fall_detector._physio_window_end is not None
+                and now <= self.fall_detector._physio_window_end):
+            temp_z = zscores.get("temp", 0.0)
+            spo2_z = zscores.get("spo2", 0.0)
+            dyn_acc = sample.get("dyn_acc_mag", 0.0) or 0.0
+            physio_boost, physio_reasons = self.fall_detector.check_physio_corroboration(
+                hr=sample.get("hr"),
+                temp_z=temp_z,
+                spo2_z=spo2_z,
+                dyn_acc=dyn_acc,
+                now=now,
+            )
+            # Apply physio corroboration boost to fall confidence
+            if physio_boost != 0.0:
+                fall_result["confidence"] = round(
+                    max(0.0, min(1.0, fall_result["confidence"] + physio_boost)), 3
+                )
+            if physio_reasons:
+                fall_result["description"] += " | Physio: " + "; ".join(physio_reasons)
 
         # ------------------------------------------------------------------
         # Step 2: Flag signals
@@ -1063,9 +1322,17 @@ class DistressEngine:
         # ------------------------------------------------------------------
         # If a fall is confirmed, override the alert and escalate state
         if fall_result["detected"]:
-            alert = _pick_alert(ALERTS_FALL_CONFIRMED, self._cycle)
-            final_state = "distress"
-            confidence = max(confidence, 0.9)
+            if fall_result["stage"] == "confirmed_uncertain":
+                # Uncertain fall — flag but defer to physiological corroboration
+                alert = _pick_alert(ALERTS_FALL_UNCERTAIN, self._cycle)
+                confidence = max(confidence, 0.55)
+                # Only escalate if physiology already shows stress/distress
+                if final_state in ("stress", "distress"):
+                    final_state = "distress"
+            else:
+                alert = _pick_alert(ALERTS_FALL_CONFIRMED, self._cycle)
+                final_state = "distress"
+                confidence = max(confidence, 0.9)
         elif fall_result["stage"] in ("freefall", "impact", "inactivity_check"):
             alert = _pick_alert(ALERTS_FALL_DETECTED)
         elif fall_result["stage"] == "cancelled":
@@ -1367,7 +1634,7 @@ class GeoContext:
 
     is_home_zone:          bool = False
     is_work_zone:          bool = False
-    is_known_area:         bool = True    # default safe
+    is_known_area:         bool = False   # fail-safe: unknown when data missing
     is_unfamiliar_area:    bool = False
 
     distance_from_home_km: float = 0.0
@@ -1383,6 +1650,7 @@ class GeoContext:
     sudden_stop:           bool = False
 
     phone_connected:       bool = True
+    phone_disconnect_duration_s: float = 0.0  # how long phone has been disconnected
 
     @classmethod
     def from_dict(cls, d: Dict) -> "GeoContext":
@@ -1457,8 +1725,8 @@ def _score_movement_risk(ctx: GeoContext) -> Tuple[float, List[str]]:
         score += 0.2
         reasons.append("vehicle motion at night")
 
-    # High speed (> 120 km/h) could indicate danger or erratic driving
-    if ctx.speed_kmph > 120:
+    # High speed (> 140 km/h) could indicate danger or erratic driving
+    if ctx.speed_kmph > 140:
         score += 0.3
         reasons.append(f"high speed ({ctx.speed_kmph:.0f} km/h)")
 
@@ -1466,9 +1734,13 @@ def _score_movement_risk(ctx: GeoContext) -> Tuple[float, List[str]]:
 
 
 def _score_connectivity_risk(ctx: GeoContext) -> Tuple[float, List[str]]:
-    """Score connectivity risk. Returns (score, reasons)."""
-    if not ctx.phone_connected:
-        return 0.8, ["phone disconnected"]
+    """Score connectivity risk. Returns (score, reasons).
+
+    Only scores disconnection after 5 minutes (300s) of sustained
+    disconnection to avoid false alarms from brief signal drops.
+    """
+    if not ctx.phone_connected and ctx.phone_disconnect_duration_s >= 300:
+        return 0.4, ["phone disconnected (>5 min)"]
     return 0.0, []
 
 
@@ -1557,8 +1829,9 @@ class SafetyRiskEngine:
     def __init__(self):
         self._cycle = 0
         self._risk_history: Deque[str] = deque(maxlen=120)
+        self._critical_start: Optional[float] = None
         self._high_risk_start: Optional[float] = None
-        self._HIGH_RISK_PERSISTENCE_S = 30  # seconds before escalating
+        self._RISK_PERSISTENCE_S = 30  # seconds before allowing high/critical
 
     def evaluate(
         self,
@@ -1722,7 +1995,7 @@ class SafetyRiskEngine:
             and not ctx.sudden_route_change
             and not ctx.sudden_stop):
             if physio_state == "stress":
-                risk_score *= 0.5  # halve the risk
+                risk_score *= 0.85  # mild suppression (home is safer, but not silent)
                 note = "suppressed: home zone, daytime"
 
         # Work zone during typical hours
@@ -1829,18 +2102,30 @@ class SafetyRiskEngine:
 
     def _apply_risk_persistence(self, risk_level: str, now: float) -> str:
         """
-        Prevent flickering by requiring high/critical risk to persist.
+        Prevent flickering by requiring high_risk and critical to persist.
 
-        Critical must hold for 30 seconds before actually outputting
-        "critical" — until then, cap at "high_risk".
+        Both high_risk and critical must hold for 30 seconds before
+        actually outputting at that level — until then, cap one tier lower.
         """
+        # --- Critical persistence ---
         if risk_level == "critical":
+            if self._critical_start is None:
+                self._critical_start = now
+            duration = now - self._critical_start
+            if duration < self._RISK_PERSISTENCE_S:
+                risk_level = "high_risk"  # cap until persistence met
+        else:
+            self._critical_start = None
+
+        # --- High-risk persistence (applies to both original high_risk
+        #     and critical that was just capped to high_risk) ---
+        if risk_level == "high_risk":
             if self._high_risk_start is None:
                 self._high_risk_start = now
             duration = now - self._high_risk_start
-            if duration < self._HIGH_RISK_PERSISTENCE_S:
-                return "high_risk"  # cap until persistence met
-        elif risk_level not in ("high_risk", "critical"):
+            if duration < self._RISK_PERSISTENCE_S:
+                risk_level = "moderate_risk"  # cap until persistence met
+        else:
             self._high_risk_start = None
 
         self._risk_history.append(risk_level)
@@ -2021,8 +2306,14 @@ class UnifiedSafetyEngine:
         }
 
     def _select_top_alert(self, distress_result: Dict, safety_result: Dict) -> Dict:
-        """Pick the highest-severity alert across all layers."""
-        SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
+        """Pick the highest-severity alert across all layers.
+
+        Selection is purely by MAX SEVERITY so that a physiological
+        distress alert is never silently downgraded by a lower-severity
+        safety alert.  When both have equal severity the safety alert
+        wins (more context-aware).
+        """
+        SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
         distress_alert = distress_result.get("alert", {})
         safety_alert = safety_result.get("alert", {})
@@ -2030,13 +2321,9 @@ class UnifiedSafetyEngine:
         d_rank = SEVERITY_RANK.get(distress_alert.get("severity", "low"), 0)
         s_rank = SEVERITY_RANK.get(safety_alert.get("severity", "low"), 0)
 
-        # Prefer the safety alert when risk is moderate+ (more context-aware)
-        safety_risk = safety_result.get("risk_level", "normal")
-        if safety_risk in ("moderate_risk", "high_risk", "critical"):
-            return safety_alert
-
-        # Otherwise, highest severity wins
-        if s_rank > d_rank:
+        # Return whichever alert has the higher severity.
+        # On tie, prefer safety alert (more context-aware).
+        if s_rank >= d_rank:
             return safety_alert
         return distress_alert
 
@@ -2091,6 +2378,7 @@ if __name__ == "__main__":
                 "hr": hr, "hr_stability_score": 28.0, "temp": temp, "temp_raw": temp,
                 "spo2": spo2, "acc_mag": 0.98, "dyn_acc_mag": dyn_acc,
                 "acc_x": 0.02, "acc_y": -0.01, "acc_z": 0.98,
+                "gravity_x": 0.02, "gravity_y": -0.01, "gravity_z": 0.98,
                 "finger_on": finger_on, "charging": charging,
                 "battery_mv": 3850, "die_temp": 34.5, "adc_raw": 112000,
                 "thermal_bias": 0.0,
@@ -2259,6 +2547,7 @@ if __name__ == "__main__":
           "hr": 72, "hr_stability_score": 28.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.5, "acc_mag": 0.98, "dyn_acc_mag": 0.02,
           "acc_x": 0.02, "acc_y": -0.01, "acc_z": 0.98,
+          "gravity_x": 0.02, "gravity_y": -0.01, "gravity_z": 0.98,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.92, "hrv": 0.65, "temp": 0.90,
@@ -2272,6 +2561,7 @@ if __name__ == "__main__":
           "hr": 85, "hr_stability_score": 22.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.3, "dyn_acc_mag": 0.7,
           "acc_x": 0.1, "acc_y": 0.1, "acc_z": 0.2,
+          "gravity_x": 0.02, "gravity_y": -0.01, "gravity_z": 0.94,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.80, "hrv": 0.50, "temp": 0.90,
@@ -2279,12 +2569,13 @@ if __name__ == "__main__":
           "accepted": True, "reject_reasons": [], "clinical_flags": []},
          1.0),
 
-        # Frame 3: IMPACT (acc_mag spikes to 4.5g, orientation changed)
-        ("IMPACT spike (acc_mag=4.5g, now horizontal)",
+        # Frame 3: IMPACT (acc_mag spikes to 4.5g — raw acc dominated by dynamic force)
+        ("IMPACT spike (acc_mag=4.5g, gravity still transitioning)",
          {"timestamp": _ts_fall+2, "sequence": 3,
           "hr": 110, "hr_stability_score": 15.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 97.5, "acc_mag": 4.5, "dyn_acc_mag": 3.5,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
+          "gravity_x": 0.07, "gravity_y": -0.01, "gravity_z": 0.90,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.75, "hrv": 0.40, "temp": 0.90,
@@ -2292,12 +2583,13 @@ if __name__ == "__main__":
           "accepted": True, "reject_reasons": [], "clinical_flags": []},
          2.0),
 
-        # Frame 4: Post-impact stillness (1s)
-        ("Post-impact: still (1s)",
+        # Frame 4: Post-impact stillness (1s) — gravity settling to horizontal
+        ("Post-impact: still (1s) — gravity settling",
          {"timestamp": _ts_fall+3, "sequence": 4,
           "hr": 100, "hr_stability_score": 18.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 97.8, "acc_mag": 0.99, "dyn_acc_mag": 0.02,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
+          "gravity_x": 0.50, "gravity_y": 0.02, "gravity_z": 0.52,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.88, "hrv": 0.55, "temp": 0.90,
@@ -2305,12 +2597,13 @@ if __name__ == "__main__":
           "accepted": True, "reject_reasons": [], "clinical_flags": []},
          3.0),
 
-        # Frame 5: Post-impact stillness (2s)
-        ("Post-impact: still (2s)",
+        # Frame 5: Post-impact stillness (2s) — gravity settled to horizontal
+        ("Post-impact: still (2s) — gravity settled",
          {"timestamp": _ts_fall+4, "sequence": 5,
           "hr": 95, "hr_stability_score": 20.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.99, "dyn_acc_mag": 0.01,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
+          "gravity_x": 0.80, "gravity_y": 0.04, "gravity_z": 0.25,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.90, "hrv": 0.60, "temp": 0.90,
@@ -2318,12 +2611,13 @@ if __name__ == "__main__":
           "accepted": True, "reject_reasons": [], "clinical_flags": []},
          4.0),
 
-        # Frame 6: Post-impact stillness (3s)
-        ("Post-impact: still (3s)",
+        # Frame 6: Post-impact stillness (3s) — gravity fully settled
+        ("Post-impact: still (3s) — gravity settled",
          {"timestamp": _ts_fall+5, "sequence": 6,
           "hr": 92, "hr_stability_score": 22.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.99, "dyn_acc_mag": 0.01,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
+          "gravity_x": 0.90, "gravity_y": 0.04, "gravity_z": 0.15,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.92, "hrv": 0.65, "temp": 0.90,
@@ -2337,6 +2631,7 @@ if __name__ == "__main__":
           "hr": 88, "hr_stability_score": 24.0, "temp": 36.6, "temp_raw": 36.6,
           "spo2": 98.0, "acc_mag": 0.99, "dyn_acc_mag": 0.01,
           "acc_x": 0.95, "acc_y": 0.05, "acc_z": 0.1,
+          "gravity_x": 0.93, "gravity_y": 0.04, "gravity_z": 0.12,
           "finger_on": True, "charging": False, "battery_mv": 3850,
           "die_temp": 34.5, "adc_raw": 112000, "thermal_bias": 0.0,
           "sqi": {"hr": 0.92, "hrv": 0.65, "temp": 0.90,
